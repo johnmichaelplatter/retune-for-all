@@ -134,11 +134,18 @@ fn setup_grid_tuning(state_mutex: Arc<Mutex<MidiState>>) -> Result<(), Box<dyn E
     let ref_midi: i32 = prompt_input("Reference MIDI number (e.g., 69 for A4): ").parse()?;
     let ref_pitch: f32 = prompt_input("Reference pitch in Hz (e.g., 440.0): ").parse()?;
     
-    let open_str_input = prompt_input("Open strings (8 integers representing EDO steps offset from Reference, comma-separated): ");
-    let open_strings: Vec<i32> = open_str_input.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+    // Updated prompt text to remind the user of the bottom-to-top order
+    let open_str_input = prompt_input("Open strings (8 integers offset from Ref, comma-separated, BOTTOM row first): ");
+    
+    // Changed to mut so we can reverse it
+    let mut open_strings: Vec<i32> = open_str_input.split(',').filter_map(|s| s.trim().parse().ok()).collect();
     if open_strings.len() != 8 {
         return Err("You must provide exactly 8 integers for the open strings.".into());
     }
+
+    // --- NEW LOGIC ---
+    // Reverse the array so index 0 (the user's first input) maps to the highest row index (Row 7 / bottom of the Launchpad)
+    open_strings.reverse();
 
     let steps_input = prompt_input("Horizontal step sizes (1 integer for uniform steps, or 9 comma-separated integers): ");
     let horiz_steps: Vec<i32> = steps_input.split(',').filter_map(|s| s.trim().parse().ok()).collect();
@@ -157,7 +164,6 @@ fn setup_grid_tuning(state_mutex: Arc<Mutex<MidiState>>) -> Result<(), Box<dyn E
             }
         } else if fret < 0 {
             for i in fret..0 {
-                // If scroll offset is deeply negative, we walk the step array backwards
                 let idx = i.rem_euclid(horiz_steps.len() as i32) as usize;
                 offset -= horiz_steps[idx];
             }
@@ -165,7 +171,7 @@ fn setup_grid_tuning(state_mutex: Arc<Mutex<MidiState>>) -> Result<(), Box<dyn E
         offset
     };
 
-    let mut new_tuning = [0.0; 128]; // Unmaps everything else by default
+    let mut new_tuning = [0.0; 128]; 
     
     for row in 0..8 {
         for col in 0..9 {
@@ -173,6 +179,8 @@ fn setup_grid_tuning(state_mutex: Arc<Mutex<MidiState>>) -> Result<(), Box<dyn E
             if midi_note < 128 {
                 let current_fret = col + scroll;
                 let h_offset = calc_horiz_offset(current_fret);
+                
+                // Because we reversed the array, row 0 (top of the launchpad) now grabs the last element the user typed
                 let total_edo_steps = open_strings[row as usize] + h_offset;
                 
                 // Calculate frequency
