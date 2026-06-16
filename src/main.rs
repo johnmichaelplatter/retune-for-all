@@ -79,13 +79,26 @@ fn update_tuning(state_mutex: Arc<Mutex<MidiState>>, choice: char) {
             for i in 0..128 { state.tuning[i] = pitch_center * 2.0f32.powf((i as f32 - pitch_ref) / 24.0); }
         }
         '3' => { // Just Intonation
-            let ratios = [1.0, 17.0/16.0, 9.0/8.0, 6.0/5.0, 5.0/4.0, 4.0/3.0, 11.0/8.0, 3.0/2.0, 13.0/8.0, 5.0/3.0, 7.0/4.0, 15.0/8.0];
+            let ratios = [
+                1.0, 17.0/16.0, 9.0/8.0, 6.0/5.0, 5.0/4.0, 4.0/3.0, 
+                11.0/8.0, 3.0/2.0, 13.0/8.0, 5.0/3.0, 7.0/4.0, 15.0/8.0
+            ];
+            
+            // If A4 (note 69) is 440Hz and A's ratio is 5/3, 
+            // then C4 (note 60) must be 264Hz to keep A in tune.
+            let base_c_freq = pitch_center * (3.0 / 5.0); 
+            
             for i in 0..128 {
-                let octave = ((i as i32 - 69) / 12) as f32;
                 let note_class = (i % 12) as usize;
-                state.tuning[i] = pitch_center * ratios[note_class] * 2.0f32.powf(octave);
+                
+                // Unsigned division properly steps every 12 notes. 
+                // MIDI note 60 is C4, which equals 60 / 12 = 5. 
+                // We subtract 5 to make C4 our 2^0 base octave.
+                let octave = (i / 12) as i32 - 5; 
+                
+                state.tuning[i] = base_c_freq * ratios[note_class] * 2.0f32.powi(octave);
             }
-        }
+        }        
         '4'..='9' => { // N-EDO
             let n = match choice { '4'=>17, '5'=>19, '6'=>22, '7'=>31, '8'=>41, '9'=>53, _=>12 };
             for i in 0..128 { state.tuning[i] = pitch_center * 2.0f32.powf((i as f32 - pitch_ref) / n as f32); }
