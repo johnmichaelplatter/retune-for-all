@@ -1,5 +1,6 @@
 use midir::{MidiInput, MidiOutput, MidiOutputConnection};
 use std::error::Error;
+use std::fs;
 use std::io::{stdin, stdout, Write};
 use std::sync::{Arc, Mutex};
 
@@ -16,7 +17,6 @@ struct MidiState {
     pitch_center: f32,
     pitch_reference_note: u8,
     
-    // NEW: Track the current position of the input pitch bend wheel (center is 8192)
     input_pitch_bend: u16, 
 }
 
@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         pitch_bend_range,
         pitch_center: 440.0,
         pitch_reference_note: 69,
-        input_pitch_bend: 8192, // Default to no pitch bend
+        input_pitch_bend: 8192,
     }));
 
     // Initialize to Preset 1 (Standard Pitch)
@@ -59,15 +59,113 @@ fn main() -> Result<(), Box<dyn Error>> {
         (),
     )?;
 
-    println!("\nProcessing. Press 1-9 to switch presets, or 'q' to quit.");
+    println!("\nProcessing. Press 1-9 for presets, 0 for .scl file, or 'q' to quit.");
     loop {
         let mut input = String::new();
         stdin().read_line(&mut input)?;
         let choice = input.trim().chars().next().unwrap_or(' ');
+        
         if choice == 'q' { break; }
-        update_tuning(state.clone(), choice);
+        
+        if choice == '0' {
+            print!("Enter path to .scl file: ");
+            stdout().flush()?;
+            let mut path = String::new();
+            stdin().read_line(&mut path)?;
+            
+            // Clean up the path string (Windows drag-and-drop often adds quotes)
+            let path = path.trim().trim_matches('"').trim_matches('\'');
+            
+            match parse_scl(path) {
+                Ok(multipliers) => {
+                    let mut state = state.lock().unwrap();
+                    let n = multipliers.len() - 1; // Number of intervals specified
+                    let period = multipliers[n];   // The final entry is our looping period
+                    let pitch_center = state.pitch_center;
+                    
+                    // Cycle the pattern mathematically backwards and forwards
+                    for i in 0..128 {
+                        let k = i as i32 - 69; // Steps away from A4
+                        // Use Euclidean division to correctly handle negative indices
+                        let q = k.div_euclid(n as i32);
+                        let r = k.rem_euclid(n as i32) as usize;
+                        
+                        state.tuning[i] = pitch_center * period.powi(q) * multipliers[r];
+                    }
+                    println!("Successfully loaded Scala tuning from {}", path);
+                },
+                Err(e) => {
+                    println!("Error loading SCL file: {}", e);
+                }
+            }
+        } else {
+            update_tuning(state.clone(), choice);
+        }
     }
     Ok(())
+}
+
+fn parse_scl(path: &str) -> Result<Vec<f32>, Box<dyn Error>> {
+    let contents = fs::read_to_string(path)?;
+    // Ignore comment lines (allowing for potential leading whitespace)
+    let mut lines = contents.lines().filter(|l| !l.trim().starts_with('!'));
+
+    // First line: Description
+    let _description = lines.next().ok_or("Missing description line")?;
+    
+    // Second line: Number of notes
+    let mut num_notes_line = lines.next().ok_or("Missing number of notes")?.trim();
+    while num_notes_line.is_empty() {
+        num_notes_line = lines.next().ok_or("Missing number of notes")?.trim();
+    }
+    let num_notes: usize = num_notes_line.parse()?;
+    
+    if num_notes == 0 {
+        return Err("0-note scales are not currently supported.".into());
+    }
+
+    let mut multipliers = Vec::with_capacity(num_notes + 1);
+    multipliers.push(1.0); // 1/1 base note is implicit
+
+    let mut count = 0;
+    for line in lines {
+        if count >= num_notes { break; }
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; } // Ignore empty lines
+        
+        // Take just the first chunk of text, ignoring trailing comments
+        let token = trimmed.split_whitespace().next().unwrap_or("");
+        
+        let multiplier = if token.contains('.') {
+            // Cents value
+            let cents: f32 = token.parse()?;
+            2.0_f32.powf(cents / 1200.0)
+        } else if token.contains('/') {
+            // Ratio value
+            let mut parts = token.split('/');
+            let num: f32 = parts.next().unwrap().parse()?;
+            let den: f32 = parts.next().unwrap().parse()?;
+            if den == 0.0 { return Err("Denominator is zero".into()); }
+            num / den
+        } else {
+            // Integer ratio
+            let num: f32 = token.parse()?;
+            num
+        };
+
+        if multiplier <= 0.0 {
+            return Err("Pitch values must evaluate to a positive ratio".into());
+        }
+        
+        multipliers.push(multiplier);
+        count += 1;
+    }
+
+    if count < num_notes {
+        return Err("File ended before all expected pitch lines were read".into());
+    }
+
+    Ok(multipliers)
 }
 
 fn update_tuning(state_mutex: Arc<Mutex<MidiState>>, choice: char) {
@@ -79,12 +177,12 @@ fn update_tuning(state_mutex: Arc<Mutex<MidiState>>, choice: char) {
         '1' => { // 12-TET
             for i in 0..128 { state.tuning[i] = pitch_center * 2.0f32.powf((i as f32 - pitch_ref) / 12.0); }
         }
-        '2' => { // 24-EDO (Quarter-tone)
+        '2' => { // 24-EDO
             for i in 0..128 { state.tuning[i] = pitch_center * 2.0f32.powf((i as f32 - pitch_ref) / 24.0); }
         }
         '3' => { // Just Intonation
             let ratios = [1.0, 17.0/16.0, 9.0/8.0, 6.0/5.0, 5.0/4.0, 4.0/3.0, 11.0/8.0, 3.0/2.0, 13.0/8.0, 5.0/3.0, 7.0/4.0, 15.0/8.0];
-            let base_c_freq = pitch_center * (3.0 / 5.0); // Calibrate so C is 264Hz, keeping A at 440Hz
+            let base_c_freq = pitch_center * (3.0 / 5.0); 
             for i in 0..128 {
                 let note_class = (i % 12) as usize;
                 let octave = (i / 12) as i32 - 5; 
@@ -95,7 +193,10 @@ fn update_tuning(state_mutex: Arc<Mutex<MidiState>>, choice: char) {
             let n = match choice { '4'=>17, '5'=>19, '6'=>22, '7'=>31, '8'=>41, '9'=>53, _=>12 };
             for i in 0..128 { state.tuning[i] = pitch_center * 2.0f32.powf((i as f32 - pitch_ref) / n as f32); }
         }
-        _ => println!("Invalid preset."),
+        _ => {
+            if choice != '0' { println!("Invalid preset."); }
+            return;
+        }
     }
     println!("Preset {} loaded.", choice);
 }
@@ -105,7 +206,6 @@ fn process_midi(message: &[u8], state: &mut MidiState) {
     let status = message[0];
     let msg_type = status & 0xF0;
     
-    // We define how many semitones a fully pushed pitch wheel should span based on your math.
     let wheel_range_semitones = 1.0; 
 
     // --- 1. NOTE MESSAGES ---
@@ -125,17 +225,11 @@ fn process_midi(message: &[u8], state: &mut MidiState) {
                 let exact_note = state.pitch_reference_note as f32 + 12.0 * (target_hz / state.pitch_center).log2();
                 let nearest_note = exact_note.round().clamp(0.0, 127.0) as u8;
                 
-                // Retuning error: How far the target pitch is from the nearest standard MIDI note
                 let semitone_diff = exact_note - nearest_note as f32;
-                
-                // Add the input wheel bend
-                let input_pb_norm = (state.input_pitch_bend as f32 - 8192.0) / 8192.0; // -1.0 to 1.0
+                let input_pb_norm = (state.input_pitch_bend as f32 - 8192.0) / 8192.0; 
                 let total_semitones = semitone_diff + (input_pb_norm * wheel_range_semitones);
-                
-                // Translate total semitones into output synth pitch bend value
                 let pb_val = (8192.0 + (total_semitones / state.pitch_bend_range as f32) * 8192.0).round().clamp(0.0, 16383.0) as u16;
                 
-                // Save the base tuning error into state so we can dynamically adjust it if the wheel moves
                 state.channel_busy[chan as usize] = true;
                 state.note_to_channel[input_note] = Some((chan, nearest_note, semitone_diff));
                 state.last_allocated = chan;
@@ -151,21 +245,16 @@ fn process_midi(message: &[u8], state: &mut MidiState) {
         
     // --- 2. PITCH BEND MESSAGES ---
     } else if msg_type == 0xE0 && message.len() >= 3 {
-        // Intercept Pitch Bend and update our master state
         let pb_in = (message[1] as u16) | ((message[2] as u16) << 7);
         state.input_pitch_bend = pb_in;
         
         let input_pb_norm = (pb_in as f32 - 8192.0) / 8192.0;
         let wheel_semitone_shift = input_pb_norm * wheel_range_semitones;
         
-        // Loop through all playing voices and update their Pitch Bend on the fly
         for voice_state in state.note_to_channel.iter() {
             if let Some((chan, _, base_semitone_diff)) = voice_state {
-                // Add the new wheel position to this voice's unique tuning requirement
                 let total_semitones = base_semitone_diff + wheel_semitone_shift;
                 let pb_val = (8192.0 + (total_semitones / state.pitch_bend_range as f32) * 8192.0).round().clamp(0.0, 16383.0) as u16;
-                
-                // Send the newly combined value specifically to this channel
                 let _ = state.out_conn.send(&[0xE0 | *chan, (pb_val & 0x7F) as u8, (pb_val >> 7) as u8]);
             }
         }
@@ -173,10 +262,8 @@ fn process_midi(message: &[u8], state: &mut MidiState) {
     // --- 3. ALL OTHER MESSAGES ---
     } else {
         if status >= 0xF0 {
-            // Pass System messages through unmodified
             let _ = state.out_conn.send(message);
         } else {
-            // Broadcast CCs, Mod Wheel, Sustain to all allocated channels
             let mut out_msg = message.to_vec();
             for chan in 0..state.num_channels {
                 out_msg[0] = msg_type | chan;
