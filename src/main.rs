@@ -37,19 +37,29 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // 2. Apply Custom Offsets
     // E (4, 16, 28, ...), Bb (10, 22, 34, ...), G (7, 19, 31, ...), F# (6, 18, 30, ...)
+ //   for i in 0..128 {
+  //      let note_class = i % 12;
+   //     let offset_cents = match note_class {
+    //        4 => -14.0, // E
+     //       10 => -34.0, // Bb
+      //      7 => 2.0,   // G
+       //     6 => -49.0, // F#
+        //    _ => 0.0,
+//        };
+ //       
+  //      if offset_cents != 0.0 {
+   //         tuning[i] *= 2.0_f32.powf(offset_cents / 1200.0);
+    //    }
+    //}
+
+    // 1. Initialize Quarter-tone tuning (440Hz at MIDI 69)
+    // Every semitone is 50 cents, meaning there are 24 notes per octave.
+    let pitch_center = 440.0;
+    let pitch_reference_note = 69;
+    let mut tuning = [0.0; 128];
     for i in 0..128 {
-        let note_class = i % 12;
-        let offset_cents = match note_class {
-            4 => -14.0, // E
-            10 => -34.0, // Bb
-            7 => 2.0,   // G
-            6 => -49.0, // F#
-            _ => 0.0,
-        };
-        
-        if offset_cents != 0.0 {
-            tuning[i] *= 2.0_f32.powf(offset_cents / 1200.0);
-        }
+        // We use 24.0 instead of 12.0 to stretch the scale into quarter-tones
+        tuning[i] = pitch_center * 2.0_f32.powf((i as f32 - pitch_reference_note as f32) / 24.0);
     }
 
     let state = MidiState {
