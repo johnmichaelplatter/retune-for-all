@@ -130,7 +130,22 @@ fn process_midi(message: &[u8], state: &mut MidiState) {
             state.note_to_channel[input_note] = None;
             let _ = state.out_conn.send(&[msg_type | chan, actual_sent_note, message[2]]);
         }
-    } else { let _ = state.out_conn.send(message); }
+    } else { 
+        // --- NEW ROUTING LOGIC FOR NON-NOTE MESSAGES ---
+        if status >= 0xF0 {
+            // System messages (Clock, SysEx, Active Sensing, etc.) don't have channels. 
+            // Pass them through exactly once.
+            let _ = state.out_conn.send(message);
+        } else {
+            // Channel messages (CC, Mod Wheel, Sustain, Channel Pressure, etc.)
+            // Duplicate the message and broadcast it to ALL channels in our pool.
+            let mut out_msg = message.to_vec();
+            for chan in 0..state.num_channels {
+                out_msg[0] = msg_type | chan;
+                let _ = state.out_conn.send(&out_msg);
+            }
+        }
+    }
 }
 
 fn select_port<T: midir::MidiIO>(io: &T, pt: &str) -> Result<T::Port, Box<dyn Error>> {
