@@ -68,8 +68,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         out_conn,
         num_channels,
         note_to_channel: [None; 128],
-        channel_busy: vec![false; num_channels as usize],
-        last_allocated: 0,
+        channel_busy: vec![false; 16], // Always size to 16 to safely accommodate all MIDI channels        last_allocated: 0,
         tuning: [0.0; 128],
         pitch_bend_range,
         synth_pitch_center: 440.0,
@@ -378,17 +377,25 @@ fn process_midi(message: &[u8], state: &mut MidiState) {
             let is_note_on = msg_type == 0x90 && message[2] > 0;
 
             if is_note_on {
-                let target_hz = state.tuning[input_note];
-                if target_hz <= 0.0 { return; } 
+                    let target_hz = state.tuning[input_note];
+                    if target_hz <= 0.0 { return; } 
 
-                // 1. Allocate channels from 1 to num_channels (Channel 0 is strictly the Master)
-                let mut assigned_chan = None;
-                for i in 1..=state.num_channels {
-                    // Cycles strictly between 1 and num_channels inclusive
-                    let chan = 1 + (state.last_allocated + i) % state.num_channels;
-                    if !state.channel_busy[chan as usize] { assigned_chan = Some(chan); break; }
-                }
+                    let mut assigned_chan = None;
+                    for i in 0..state.num_channels {
+                        // Convert last_allocated (1..=15) to a 0-based offset for the modulo math
+                        let last_offset = if state.last_allocated > 0 { state.last_allocated - 1 } else { 0 };
+                        
+                        // Calculate the next channel index to check
+                        let idx = (last_offset + i + 1) % state.num_channels;
+                        
+                        // Map it back to an MPE member channel (MIDI channels 2-16 are represented as 1-15)
+                        let chan = 1 + idx; 
 
+                        if !state.channel_busy[chan as usize] { 
+                            assigned_chan = Some(chan); 
+                            break; 
+                        }
+                    }
                 if let Some(chan) = assigned_chan {
                     let exact_note = state.synth_ref_note as f32 + 12.0 * (target_hz / state.synth_pitch_center).log2();
                     let nearest_note = exact_note.round().clamp(0.0, 127.0) as u8;
