@@ -40,11 +40,29 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let in_port = select_port(&midi_in, "input")?;
     let out_port = select_port(&midi_out, "output")?;
+    
+    // 1. Prompt for MPE mode first
+    let is_mpe = prompt_mpe_mode()?;
+    
+    // 2. Ask for channels (For MPE, 15 is standard to cover channels 2-16)
     let num_channels = get_num_channels()?;
-    let pitch_bend_range = get_pitch_bend_range()?;
+    
+    // 3. Conditionally handle pitch bend range based on mode
+    let pitch_bend_range = if is_mpe {
+        println!("MPE Mode: Pitch Bend Range automatically locked to 48 semitones per specification.");
+        48
+    } else {
+        get_pitch_bend_range()?
+    };
 
     println!("\nConnecting...");
-    let out_conn = midi_out.connect(&out_port, "poly-router-out")?;
+    let mut out_conn = midi_out.connect(&out_port, "poly-router-out")?;
+
+    // 4. If MPE is selected, initialize the synth zone right away
+    if is_mpe {
+        send_mpe_configuration(&mut out_conn, num_channels);
+        println!("MPE Configuration Message sent to Synth (Channel 1).");
+    }
 
     let state = Arc::new(Mutex::new(MidiState {
         out_conn,
@@ -57,7 +75,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         synth_pitch_center: 440.0,
         synth_ref_note: 69,
         input_pitch_bend: 8192,
-        is_mpe: false,
+        is_mpe, // Passes the chosen mode into our state
     }));
 
     update_tuning(state.clone(), "1");
@@ -123,7 +141,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     Ok(())
 }
-
 fn prompt_input(prompt: &str) -> String {
     print!("{}", prompt);
     stdout().flush().unwrap();
@@ -474,6 +491,30 @@ fn process_midi(message: &[u8], state: &mut MidiState) {
 
 fn send_mpe_configuration(out_conn: &mut MidiOutputConnection, member_channels: u8) {
     // Send RPN 06 to Channel 1 (0x00) to configure MPE Zone 1
+    let messages = [
+        [0xB0, 101, 0],               // RPN MSB: 0
+        [0xB0, 100, 6],               // RPN LSB: 6 (MPE Configuration)
+        [0xB0, 6, member_channels],   // Data Entry MSB: Number of member channels (e.g., 15)
+        [0xB0, 38, 0],                // Data Entry LSB: 0
+    ];
+    for msg in messages.iter() {
+        let _ = out_conn.send(msg);
+    }
+}
+
+fn prompt_mpe_mode() -> Result<bool, Box<dyn Error>> {
+    print!("Select MIDI Output Mode (1: Standard Multi-timbral, 2: MPE): ");
+    stdout().flush()?;
+    let mut s = String::new();
+    stdin().read_line(&mut s)?;
+    match s.trim() {
+        "2" => Ok(true),
+        _ => Ok(false), // Default to standard multi-timbral
+    }
+}
+
+fn send_mpe_configuration(out_conn: &mut MidiOutputConnection, member_channels: u8) {
+    // Send RPN 06 to Channel 1 (0xB0) to configure MPE Zone 1
     let messages = [
         [0xB0, 101, 0],               // RPN MSB: 0
         [0xB0, 100, 6],               // RPN LSB: 6 (MPE Configuration)
