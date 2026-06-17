@@ -68,7 +68,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         out_conn,
         num_channels,
         note_to_channel: [None; 128],
-        channel_busy: vec![false; 16], // Always size to 16 to safely accommodate all MIDI channels        last_allocated: 0,
+        channel_busy: vec![false; 16], // Always size to 16 to safely accommodate all MIDI channels        
+        last_allocated: 0,
         tuning: [0.0; 128],
         pitch_bend_range,
         synth_pitch_center: 440.0,
