@@ -513,19 +513,6 @@ fn prompt_mpe_mode() -> Result<bool, Box<dyn Error>> {
     }
 }
 
-fn send_mpe_configuration(out_conn: &mut MidiOutputConnection, member_channels: u8) {
-    // Send RPN 06 to Channel 1 (0xB0) to configure MPE Zone 1
-    let messages = [
-        [0xB0, 101, 0],               // RPN MSB: 0
-        [0xB0, 100, 6],               // RPN LSB: 6 (MPE Configuration)
-        [0xB0, 6, member_channels],   // Data Entry MSB: Number of member channels (e.g., 15)
-        [0xB0, 38, 0],                // Data Entry LSB: 0
-    ];
-    for msg in messages.iter() {
-        let _ = out_conn.send(msg);
-    }
-}
-
 fn select_port<T: midir::MidiIO>(io: &T, pt: &str) -> Result<T::Port, Box<dyn Error>> {
     let ports = io.ports();
     for (i, p) in ports.iter().enumerate() { println!("{}: {}", i, io.port_name(p)?); }
