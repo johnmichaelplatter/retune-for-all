@@ -57,6 +57,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         synth_pitch_center: 440.0,
         synth_ref_note: 69,
         input_pitch_bend: 8192,
+        is_mpe: false,
     }));
 
     update_tuning(state.clone(), "1");
