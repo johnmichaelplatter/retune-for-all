@@ -410,8 +410,8 @@ fn process_midi(message: &[u8], state: &mut MidiState) {
                     state.note_to_channel[input_note] = Some((chan, nearest_note, 0.0));
                     state.last_allocated = chan;
                     
-                    let _ = state.out_conn.send(&[0xE0 | chan, (pb_val & 0x7F) as u8, (pb_val >> 7) as u8]);
                     let _ = state.out_conn.send(&[msg_type | chan, nearest_note, message[2]]);
+                    let _ = state.out_conn.send(&[0xE0 | chan, (pb_val & 0x7F) as u8, (pb_val >> 7) as u8]);
                 }
             } else if let Some((chan, actual_sent_note, _)) = state.note_to_channel[input_note] {
                 state.channel_busy[chan as usize] = false;
