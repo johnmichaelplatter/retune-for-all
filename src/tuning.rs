@@ -21,41 +21,71 @@ pub fn prompt_input(prompt: &str) -> String {
 pub fn setup_grid_tuning(state_mutex: Arc<Mutex<MidiState>>) -> Result<String, Box<dyn Error>> {
     println!("\n--- Launchpad S Grid Microtuning ---");
     let edo: f32 = prompt_input("EDO (e.g., 41): ").parse()?;
+    
+    // Restored the missing prompt so your input sequence matches!
+    let _ref_midi: i32 = prompt_input("Reference MIDI number (e.g., 69 for A4): ").parse()?; 
     let ref_pitch: f32 = prompt_input("Reference pitch in Hz (e.g., 440.0): ").parse()?;
+    
+    // Updated prompt text to remind the user of the bottom-to-top order
     let open_str_input = prompt_input("Open strings (8 integers offset from Ref, comma-separated, BOTTOM row first): ");
     
+    // Changed to mut so we can reverse it
     let mut open_strings: Vec<i32> = open_str_input.split(',').filter_map(|s| s.trim().parse().ok()).collect();
-    if open_strings.len() != 8 { return Err("Provide exactly 8 integers.".into()); }
+    if open_strings.len() != 8 {
+        return Err("You must provide exactly 8 integers for the open strings.".into());
+    }
+
+    // Reverse the array so index 0 (the user's first input) maps to the highest row index (Row 7 / bottom of the Launchpad)
     open_strings.reverse();
 
     let steps_input = prompt_input("Horizontal step sizes (1 integer for uniform steps, or 9 comma-separated integers): ");
     let horiz_steps: Vec<i32> = steps_input.split(',').filter_map(|s| s.trim().parse().ok()).collect();
-    if horiz_steps.is_empty() { return Err("Provide at least 1 horizontal step size.".into()); }
+    if horiz_steps.is_empty() {
+        return Err("You must provide at least 1 horizontal step size.".into());
+    }
 
     let scroll: i32 = prompt_input("Scroll offset (integer, e.g. 0): ").parse()?;
 
+    // Helper to calculate cumulative horizontal steps based on a cycling step array
     let calc_horiz_offset = |fret: i32| -> i32 {
         let mut offset = 0;
-        if fret > 0 { for i in 0..fret { offset += horiz_steps[i as usize % horiz_steps.len()]; } }
-        else if fret < 0 { for i in fret..0 { offset -= horiz_steps[i.rem_euclid(horiz_steps.len() as i32) as usize]; } }
+        if fret > 0 {
+            for i in 0..fret {
+                offset += horiz_steps[i as usize % horiz_steps.len()];
+            }
+        } else if fret < 0 {
+            for i in fret..0 {
+                let idx = i.rem_euclid(horiz_steps.len() as i32) as usize;
+                offset -= horiz_steps[idx];
+            }
+        }
         offset
     };
 
     let mut new_tuning = [0.0; 128]; 
+    
     for row in 0..8 {
         for col in 0..9 {
             let midi_note = row * 16 + col;
             if midi_note < 128 {
-                let h_offset = calc_horiz_offset(col + scroll);
+                let current_fret = col + scroll;
+                let h_offset = calc_horiz_offset(current_fret);
+                
+                // Because we reversed the array, row 0 (top of the launchpad) now grabs the last element the user typed
                 let total_edo_steps = open_strings[row as usize] + h_offset;
-                new_tuning[midi_note as usize] = ref_pitch * 2.0_f32.powf(total_edo_steps as f32 / edo);
+                
+                // Calculate frequency
+                let hz = ref_pitch * 2.0_f32.powf(total_edo_steps as f32 / edo);
+                new_tuning[midi_note as usize] = hz;
             }
         }
     }
 
     let mut state = state_mutex.lock().unwrap();
     state.tuning = new_tuning;
-    Ok(format!("Mapped Launchpad S grid to {} EDO!", edo))
+    
+    // Instead of printing to the console, we return the string to the TUI to be logged!
+    Ok(format!("Successfully mapped Launchpad S grid to {} EDO!", edo))
 }
 
 pub fn apply_custom_tuning(state_mutex: Arc<Mutex<MidiState>>, multipliers: &[f32], kbm: &Kbm) -> Result<(), String> {
