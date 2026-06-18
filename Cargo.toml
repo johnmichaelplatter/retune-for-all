@@ -1,7 +1,9 @@
 [package]
-name = "poly_midi_router"
+name = "poly-router"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 midir = "0.9"
+ratatui = "0.26"
+crossterm = "0.27"
