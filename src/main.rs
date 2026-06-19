@@ -42,6 +42,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut ui_state = UiState {
         focus: Focus::CommandInput,
         is_editing_dropdown: false,
+        is_editing_pb: false,
+        pb_input: String::new(),
         dropdown_index: 0,
         in_ports: vec![],
         out_ports: vec![],

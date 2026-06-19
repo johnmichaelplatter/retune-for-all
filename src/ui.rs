@@ -10,7 +10,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Style, Modifier},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Wrap}, // Added Wrap import
     Terminal,
 };
 
@@ -22,6 +22,7 @@ pub enum Focus {
     Input,
     Output,
     Mode,
+    PitchBend, // New focus state for Pitch Bend box
     Channel(usize),
     CommandInput,
 }
@@ -29,6 +30,8 @@ pub enum Focus {
 pub struct UiState {
     pub focus: Focus,
     pub is_editing_dropdown: bool,
+    pub is_editing_pb: bool, // Track if we are typing in the PB box
+    pub pb_input: String,    // Buffer for typing the new PB value
     pub dropdown_index: usize,
     pub in_ports: Vec<String>,
     pub out_ports: Vec<String>,
@@ -56,7 +59,8 @@ pub fn run_tui(
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .margin(1)
-                .constraints([Constraint::Length(6), Constraint::Min(1), Constraint::Length(3)].as_ref())
+                // Bumped Settings height to 7 to ensure room for the text to wrap!
+                .constraints([Constraint::Length(7), Constraint::Min(1), Constraint::Length(3)].as_ref())
                 .split(f.size());
 
             let mut midi_state = state_mutex.lock().unwrap();
@@ -91,6 +95,17 @@ pub fn run_tui(
             let mode_style = if ui_state.focus == Focus::Mode { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default() };
             top_row.push(Span::raw("Output Type: "));
             top_row.push(Span::styled(mode_str, mode_style));
+            top_row.push(Span::raw("   "));
+
+            // Pitch Bend Box
+            let pb_str = if ui_state.is_editing_pb {
+                format!("< {}_ >", ui_state.pb_input) // Show cursor blink effect
+            } else {
+                format!("[ {} ]", midi_state.pitch_bend_range)
+            };
+            let pb_style = if ui_state.focus == Focus::PitchBend { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default() };
+            top_row.push(Span::raw("PB Range: "));
+            top_row.push(Span::styled(pb_str, pb_style));
 
             // --- BUILD DOTS ROW ---
             let mut dots_row = vec![];
@@ -121,7 +136,10 @@ pub fn run_tui(
             }
 
             let settings_para = Paragraph::new(vec![Line::raw(""), Line::from(top_row), Line::raw(""), Line::from(dots_row)])
-                .block(Block::default().title(" Settings ").borders(Borders::ALL));
+                .block(Block::default().title(" Settings ").borders(Borders::ALL))
+                // This command tells ratatui to automatically wrap to the next line if the terminal is too thin!
+                .wrap(Wrap { trim: true }); 
+                
             f.render_widget(settings_para, chunks[0]);
 
             // --- BUILD LOGS PANEL ---
@@ -141,7 +159,28 @@ pub fn run_tui(
         if event::poll(Duration::from_millis(30))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    if ui_state.is_editing_dropdown {
+                    
+                    // --- PB RANGE EDITING ---
+                    if ui_state.is_editing_pb {
+                        match key.code {
+                            KeyCode::Char(c) if c.is_ascii_digit() => {
+                                if ui_state.pb_input.len() < 3 { ui_state.pb_input.push(c); }
+                            }
+                            KeyCode::Backspace => { ui_state.pb_input.pop(); }
+                            KeyCode::Enter => {
+                                if let Ok(val) = ui_state.pb_input.parse::<u8>() {
+                                    let clamped = val.clamp(1, 96); // Prevent crazy values, max 96
+                                    state_mutex.lock().unwrap().pitch_bend_range = clamped;
+                                    ui_state.logs.push(format!("Pitch bend range updated to {}", clamped));
+                                }
+                                ui_state.is_editing_pb = false;
+                            }
+                            KeyCode::Esc => { ui_state.is_editing_pb = false; }
+                            _ => {}
+                        }
+                        
+                    // --- DROPDOWN EDITING ---
+                    } else if ui_state.is_editing_dropdown {
                         match key.code {
                             KeyCode::Up => {
                                 let max = if ui_state.focus == Focus::Input { ui_state.in_ports.len() } else { ui_state.out_ports.len() };
@@ -162,6 +201,8 @@ pub fn run_tui(
                             KeyCode::Esc => { ui_state.is_editing_dropdown = false; }
                             _ => {}
                         }
+                        
+                    // --- STANDARD NAVIGATION ---
                     } else {
                         match key.code {
                             KeyCode::Left => {
@@ -169,7 +210,8 @@ pub fn run_tui(
                                     Focus::Input => Focus::Input,
                                     Focus::Output => Focus::Input,
                                     Focus::Mode => Focus::Output,
-                                    Focus::Channel(0) => Focus::Mode,
+                                    Focus::PitchBend => Focus::Mode,
+                                    Focus::Channel(0) => Focus::PitchBend,
                                     Focus::Channel(i) => Focus::Channel(i - 1),
                                     Focus::CommandInput => Focus::Channel(15),
                                 };
@@ -178,7 +220,8 @@ pub fn run_tui(
                                 ui_state.focus = match ui_state.focus {
                                     Focus::Input => Focus::Output,
                                     Focus::Output => Focus::Mode,
-                                    Focus::Mode => Focus::Channel(0),
+                                    Focus::Mode => Focus::PitchBend,
+                                    Focus::PitchBend => Focus::Channel(0),
                                     Focus::Channel(15) => Focus::CommandInput,
                                     Focus::Channel(i) => Focus::Channel(i + 1),
                                     Focus::CommandInput => Focus::CommandInput,
@@ -190,6 +233,10 @@ pub fn run_tui(
                                 match ui_state.focus {
                                     Focus::Input => { ui_state.is_editing_dropdown = true; ui_state.dropdown_index = ui_state.selected_in; }
                                     Focus::Output => { ui_state.is_editing_dropdown = true; ui_state.dropdown_index = ui_state.selected_out; }
+                                    Focus::PitchBend => {
+                                        ui_state.pb_input = state_mutex.lock().unwrap().pitch_bend_range.to_string();
+                                        ui_state.is_editing_pb = true; 
+                                    }
                                     Focus::Mode => {
                                         let mut s = state_mutex.lock().unwrap();
                                         s.is_mpe = !s.is_mpe;
@@ -199,7 +246,7 @@ pub fn run_tui(
                                             if let Some(conn) = &mut s.out_conn { send_mpe_configuration(conn, 15); }
                                             ui_state.logs.push("Switched to MPE. Pitch bend range locked to 48.".to_string());
                                         } else {
-                                            s.pitch_bend_range = 12; // Default multi-timbral
+                                            s.pitch_bend_range = 12; 
                                             ui_state.logs.push("Switched to Multi-timbral. Pitch bend range reset to 12.".to_string());
                                         }
                                     }
@@ -216,7 +263,6 @@ pub fn run_tui(
                                         ui_state.input.clear();
                                         if cmd == "q" { return Ok(UiAction::Quit); }
                                         
-                                        // Complex Setup Suspend Routine
                                         if cmd == "grid" || cmd == "0" {
                                             disable_raw_mode()?;
                                             execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -231,7 +277,7 @@ pub fn run_tui(
                                                 let scl_path = scl_path.trim_matches('"').trim_matches('\'');
                                                 match parse_scl(scl_path) {
                                                     Ok(multipliers) => {
-                                                        let kbm_path = prompt_input("Enter path to .kbm file (or press Enter for standard linear mapping): ");
+                                                        let kbm_path = prompt_input("Enter path to .kbm file: ");
                                                         let kbm_path = kbm_path.trim_matches('"').trim_matches('\'');
                                                         let kbm = if kbm_path.is_empty() {
                                                             Kbm { map_size: 0, first_note: 0, last_note: 127, middle_note: 69, ref_note: 69, ref_freq: 440.0, formal_octave: (multipliers.len() - 1) as i32, mapping: vec![] }
@@ -246,7 +292,6 @@ pub fn run_tui(
                                                     Err(e) => ui_state.logs.push(format!("SCL Parse Error: {}", e)),
                                                 }
                                             }
-                                            // Resume TUI
                                             execute!(terminal.backend_mut(), EnterAlternateScreen)?;
                                             enable_raw_mode()?;
                                             terminal.clear()?;
@@ -268,12 +313,9 @@ pub fn run_tui(
                 }
             }
         } else {
-            // Frame Tick: Decay flash lights so they blink elegantly rather than staying bright
             let mut s = state_mutex.lock().unwrap();
             if s.input_flash > 0 { s.input_flash -= 1; }
-            for f in &mut s.output_flash {
-                if *f > 0 { *f -= 1; }
-            }
+            for f in &mut s.output_flash { if *f > 0 { *f -= 1; } }
         }
     }
 }
