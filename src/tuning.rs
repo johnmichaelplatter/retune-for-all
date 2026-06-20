@@ -48,27 +48,36 @@ pub fn apply_equal_division(state_mutex: Arc<Mutex<MidiState>>, divisions_str: &
     Ok(format!("Applied Equal Division: {} steps of {}", divisions_str, interval_str))
 }
 
-pub fn setup_grid_tuning(state_mutex: Arc<Mutex<MidiState>>) -> Result<String, Box<dyn Error>> {
-    println!("\n--- Launchpad S Grid Microtuning ---");
-    let edo: f32 = prompt_input("EDO (e.g., 41): ").parse()?;
-    let _ref_midi: i32 = prompt_input("Reference MIDI number (e.g., 69 for A4): ").parse()?; 
-    let ref_pitch: f32 = prompt_input("Reference pitch in Hz (e.g., 440.0): ").parse()?;
-    
-    let open_str_input = prompt_input("Open strings (8 integers offset from Ref, comma-separated, BOTTOM row first): ");
-    let mut open_strings: Vec<i32> = open_str_input.split(',').filter_map(|s| s.trim().parse().ok()).collect();
-    if open_strings.len() != 8 { return Err("Provide exactly 8 integers.".into()); }
-    open_strings.reverse();
+pub fn apply_grid_tuning(
+    state_mutex: Arc<Mutex<MidiState>>,
+    edo_str: &str,
+    _ref_midi_str: &str, // Parsed for validation but inherently unused in physical pad index math
+    ref_pitch_str: &str,
+    open_strings: &[String; 8],
+    horiz_steps: &[String],
+    capo_str: &str,
+    octave_str: &str
+) -> Result<String, String> {
+    let edo: f32 = edo_str.parse().map_err(|_| "Invalid EDO")?;
+    let ref_pitch: f32 = ref_pitch_str.parse().map_err(|_| "Invalid Ref Pitch")?;
+    let capo: i32 = capo_str.parse().map_err(|_| "Invalid Capo")?;
+    let octave: i32 = octave_str.parse().map_err(|_| "Invalid Octave")?;
 
-    let steps_input = prompt_input("Horizontal step sizes (1 integer for uniform steps, or 9 comma-separated integers): ");
-    let horiz_steps: Vec<i32> = steps_input.split(',').filter_map(|s| s.trim().parse().ok()).collect();
-    if horiz_steps.is_empty() { return Err("Provide at least 1 horizontal step size.".into()); }
+    let mut parsed_open = [0; 8];
+    for i in 0..8 { 
+        parsed_open[i] = open_strings[i].parse().map_err(|_| format!("Invalid Open String {}", i+1))?; 
+    }
 
-    let scroll: i32 = prompt_input("Scroll offset (integer, e.g. 0): ").parse()?;
+    let mut parsed_horiz = Vec::new();
+    for h in horiz_steps { 
+        parsed_horiz.push(h.parse::<i32>().map_err(|_| "Invalid Horiz Step")?); 
+    }
+    if parsed_horiz.is_empty() { return Err("No horizontal steps provided".into()); }
 
     let calc_horiz_offset = |fret: i32| -> i32 {
         let mut offset = 0;
-        if fret > 0 { for i in 0..fret { offset += horiz_steps[i as usize % horiz_steps.len()]; } }
-        else if fret < 0 { for i in fret..0 { offset -= horiz_steps[i.rem_euclid(horiz_steps.len() as i32) as usize]; } }
+        if fret > 0 { for i in 0..fret { offset += parsed_horiz[i as usize % parsed_horiz.len()]; } }
+        else if fret < 0 { for i in fret..0 { offset -= parsed_horiz[i.rem_euclid(parsed_horiz.len() as i32) as usize]; } }
         offset
     };
 
@@ -77,8 +86,9 @@ pub fn setup_grid_tuning(state_mutex: Arc<Mutex<MidiState>>) -> Result<String, B
         for col in 0..9 {
             let midi_note = row * 16 + col;
             if midi_note < 128 {
-                let h_offset = calc_horiz_offset(col + scroll);
-                let total_edo_steps = open_strings[row as usize] + h_offset;
+                let h_offset = calc_horiz_offset(col + capo);
+                // Shift by n steps in n-EDO if octave is > 0 or < 0
+                let total_edo_steps = parsed_open[row as usize] + h_offset + (octave * edo as i32);
                 new_tuning[midi_note as usize] = ref_pitch * 2.0_f32.powf(total_edo_steps as f32 / edo);
             }
         }
@@ -86,7 +96,7 @@ pub fn setup_grid_tuning(state_mutex: Arc<Mutex<MidiState>>) -> Result<String, B
 
     let mut state = state_mutex.lock().unwrap();
     state.tuning = new_tuning;
-    Ok(format!("Successfully mapped Launchpad S grid to {} EDO!", edo))
+    Ok(format!("Mapped Guitar Grid to {} EDO!", edo))
 }
 
 pub fn apply_custom_tuning(state_mutex: Arc<Mutex<MidiState>>, multipliers: &[f32], kbm: &Kbm) -> Result<(), String> {

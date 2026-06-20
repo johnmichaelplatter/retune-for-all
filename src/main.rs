@@ -43,7 +43,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         is_editing_pb: false,
         pb_input: String::new(),
         
-        // --- NEW INITIALIZERS ---
         is_editing_divisions: false,
         clear_divisions: false,
         divisions_input: "12".to_string(),
@@ -51,7 +50,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         is_editing_interval: false,
         clear_interval: false,
         interval_input: "2/1".to_string(),
-        // ------------------------
+
+        // --- NEW GRID INITIALIZERS ---
+        grid_edo: "41".to_string(),
+        grid_ref_midi: "48".to_string(),
+        grid_ref_pitch: "260.89".to_string(),
+        grid_horiz: "2".to_string(),
+        grid_capo: "0".to_string(),
+        grid_octave: "0".to_string(),
+        grid_open: ["13".to_string(), "0".to_string(), "-17".to_string(), "-28".to_string(), "-41".to_string(), "-52".to_string(), "-65".to_string(), "-82".to_string()],
+        grid_unequal: ["2".to_string(), "2".to_string(), "2".to_string(), "2".to_string(), "2".to_string(), "2".to_string(), "2".to_string(), "2".to_string(), "2".to_string()],
+        grid_unequal_toggle: false,
+        is_editing_grid: false,
+        clear_grid: false,
+        // ------------------------------
 
         dropdown_index: 0,
         in_ports: vec![],
@@ -83,9 +95,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let port = &midi_out.ports()[ui_state.selected_out];
             let mut out_conn = midi_out.connect(port, "router-out")?;
             
-            if state.lock().unwrap().is_mpe {
-                send_mpe_configuration(&mut out_conn, 15);
-            }
+            if state.lock().unwrap().is_mpe { send_mpe_configuration(&mut out_conn, 15); }
             state.lock().unwrap().out_conn = Some(out_conn);
         }
 
@@ -93,14 +103,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         match action {
             UiAction::Quit => break,
-            UiAction::ChangeInput(idx) => {
-                ui_state.selected_in = idx;
-                active_in_conn = None; 
-            }
-            UiAction::ChangeOutput(idx) => {
-                ui_state.selected_out = idx;
-                state.lock().unwrap().out_conn = None; 
-            }
+            UiAction::ChangeInput(idx) => { ui_state.selected_in = idx; active_in_conn = None; }
+            UiAction::ChangeOutput(idx) => { ui_state.selected_out = idx; state.lock().unwrap().out_conn = None; }
             UiAction::None => {}
         }
     }
