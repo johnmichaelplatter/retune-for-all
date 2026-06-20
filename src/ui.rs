@@ -126,10 +126,11 @@ pub fn run_tui(
             let mode_style = if ui_state.focus == Focus::Mode { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default() };
             top_row.push(Span::styled(mode_str, mode_style)); top_row.push(Span::raw("   "));
 
+            top_row.extend(render_labeled("PB Range: ", 0));
             let pb_str = if ui_state.is_editing_pb { format!("< {}_ >", ui_state.pb_input) } else { format!("[ {} ]", midi_state.pitch_bend_range) };
             let pb_style = if ui_state.focus == Focus::PitchBend { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default() };
-            top_row.push(Span::raw("PB Range: ")); top_row.push(Span::styled(pb_str, pb_style));
-
+            top_row.push(Span::styled(pb_str, pb_style));
+            
             let mut dots_row = vec![Span::raw("MIDI In: ")];
             let in_dot_color = if midi_state.input_flash > 0 { Color::Cyan } else { Color::DarkGray };
             dots_row.push(Span::styled("•", Style::default().fg(in_dot_color))); dots_row.push(Span::raw("    Channels Out: "));
