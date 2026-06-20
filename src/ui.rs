@@ -264,5 +264,216 @@ pub fn run_tui(
             let input_style = if ui_state.focus == Focus::CommandInput { Style::default().fg(Color::Yellow) } else { Style::default() };
             f.render_widget(Paragraph::new(format!("> {}", ui_state.input)).style(input_style).block(Block::default().title(" Command Input (Presets 1-9, '0', 'q') ").borders(Borders::ALL)), main_chunks[4]);
         })?;
+
+        if event::poll(Duration::from_millis(30))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    if let KeyCode::Char(c) = key.code {
+                        // Only jump if we aren't currently editing a specific text box
+                        if !ui_state.is_editing_grid && !ui_state.is_editing_divisions && 
+                           !ui_state.is_editing_interval && !ui_state.is_editing_dropdown && 
+                           !ui_state.is_editing_pb {
+                            
+                            let new_focus = match c {
+                                'i' => Some(Focus::Input),
+                                'o' => Some(Focus::Output),
+                                't' => Some(Focus::Mode),
+                                'p' => Some(Focus::PitchBend),
+                                'c' => Some(Focus::Channel(0)),
+                                'd' => Some(Focus::Divisions),
+                                'n' => Some(Focus::Interval),
+                                'e' => Some(Focus::GridEdo),
+                                'r' => Some(Focus::GridRefMidi),
+                                'z' => Some(Focus::GridRefPitch),
+                                'h' => Some(Focus::GridHoriz),
+                                'a' => Some(Focus::GridCapo),
+                                'v' => Some(Focus::GridOctave),
+                                'u' => Some(Focus::GridUnequalToggle),
+                                's' => Some(Focus::GridOpen(0)),
+                                _ => None,
+                            };
+
+                            if let Some(f) = new_focus {
+                                ui_state.focus = f;
+                                continue; // Jumped, skip further key processing
+                            }
+                        }
+                    }                    
+                    if ui_state.is_editing_pb {
+                        match key.code {
+                            KeyCode::Char(c) if c.is_ascii_digit() => { if ui_state.pb_input.len() < 3 { ui_state.pb_input.push(c); } }
+                            KeyCode::Backspace => { ui_state.pb_input.pop(); }
+                            KeyCode::Enter => {
+                                if let Ok(val) = ui_state.pb_input.parse::<u8>() {
+                                    state_mutex.lock().unwrap().pitch_bend_range = val.clamp(1, 96); 
+                                    ui_state.logs.push(format!("Pitch bend range updated to {}", val.clamp(1, 96)));
+                                }
+                                ui_state.is_editing_pb = false;
+                            }
+                            KeyCode::Esc => { ui_state.is_editing_pb = false; }
+                            _ => {}
+                        }
+                    } else if ui_state.is_editing_divisions || ui_state.is_editing_interval {
+                        let (buf, flag) = if ui_state.is_editing_divisions { (&mut ui_state.divisions_input, &mut ui_state.clear_divisions) } else { (&mut ui_state.interval_input, &mut ui_state.clear_interval) };
+                        match key.code {
+                            KeyCode::Char(c) => { if *flag { buf.clear(); *flag = false; } buf.push(c); }
+                            KeyCode::Backspace => { buf.pop(); }
+                            KeyCode::Enter => {
+                                ui_state.is_editing_divisions = false; ui_state.is_editing_interval = false;
+                                match apply_equal_division(state_mutex.clone(), &ui_state.divisions_input, &ui_state.interval_input) {
+                                    Ok(msg) => ui_state.logs.push(msg), Err(e) => ui_state.logs.push(format!("ED Error: {}", e)),
+                                }
+                            }
+                            KeyCode::Esc => { ui_state.is_editing_divisions = false; ui_state.is_editing_interval = false; }
+                            _ => {}
+                        }
+                    } else if ui_state.is_editing_grid {
+                        match key.code {
+                            KeyCode::Char(c) => {
+                                if ui_state.clear_grid {
+                                    match ui_state.focus {
+                                        Focus::GridEdo => ui_state.grid_edo.clear(), Focus::GridRefMidi => ui_state.grid_ref_midi.clear(),
+                                        Focus::GridRefPitch => ui_state.grid_ref_pitch.clear(), Focus::GridHoriz => ui_state.grid_horiz.clear(),
+                                        Focus::GridCapo => ui_state.grid_capo.clear(), Focus::GridOctave => ui_state.grid_octave.clear(),
+                                        Focus::GridOpen(i) => ui_state.grid_open[i].clear(), Focus::GridUnequal(i) => ui_state.grid_unequal[i].clear(),
+                                        _ => {}
+                                    }
+                                    ui_state.clear_grid = false;
+                                }
+                                match ui_state.focus {
+                                    Focus::GridEdo => ui_state.grid_edo.push(c), Focus::GridRefMidi => ui_state.grid_ref_midi.push(c),
+                                    Focus::GridRefPitch => ui_state.grid_ref_pitch.push(c), Focus::GridHoriz => ui_state.grid_horiz.push(c),
+                                    Focus::GridCapo => ui_state.grid_capo.push(c), Focus::GridOctave => ui_state.grid_octave.push(c),
+                                    Focus::GridOpen(i) => ui_state.grid_open[i].push(c), Focus::GridUnequal(i) => ui_state.grid_unequal[i].push(c),
+                                    _ => {}
+                                }
+                            }
+                            KeyCode::Backspace => {
+                                match ui_state.focus {
+                                    Focus::GridEdo => { ui_state.grid_edo.pop(); }, Focus::GridRefMidi => { ui_state.grid_ref_midi.pop(); },
+                                    Focus::GridRefPitch => { ui_state.grid_ref_pitch.pop(); }, Focus::GridHoriz => { ui_state.grid_horiz.pop(); },
+                                    Focus::GridCapo => { ui_state.grid_capo.pop(); }, Focus::GridOctave => { ui_state.grid_octave.pop(); },
+                                    Focus::GridOpen(i) => { ui_state.grid_open[i].pop(); }, Focus::GridUnequal(i) => { ui_state.grid_unequal[i].pop(); },
+                                    _ => {}
+                                }
+                            }
+                            KeyCode::Enter => {
+                                ui_state.is_editing_grid = false;
+                                let horiz = if ui_state.grid_unequal_toggle { ui_state.grid_unequal.to_vec() } else { vec![ui_state.grid_horiz.clone()] };
+                                match apply_grid_tuning(state_mutex.clone(), &ui_state.grid_edo, &ui_state.grid_ref_midi, &ui_state.grid_ref_pitch, &ui_state.grid_open, &horiz, &ui_state.grid_capo, &ui_state.grid_octave) {
+                                    Ok(msg) => ui_state.logs.push(msg), Err(e) => ui_state.logs.push(format!("Grid Error: {}", e)),
+                                }
+                            }
+                            KeyCode::Esc => { ui_state.is_editing_grid = false; }
+                            _ => {}
+                        }
+                    } else if ui_state.is_editing_dropdown {
+                        match key.code {
+                            KeyCode::Up => { let max = if ui_state.focus == Focus::Input { ui_state.in_ports.len() } else { ui_state.out_ports.len() }; if max > 0 { ui_state.dropdown_index = ui_state.dropdown_index.saturating_sub(1); } }
+                            KeyCode::Down => { let max = if ui_state.focus == Focus::Input { ui_state.in_ports.len() } else { ui_state.out_ports.len() }; if max > 0 && ui_state.dropdown_index < max - 1 { ui_state.dropdown_index += 1; } }
+                            KeyCode::Enter => {
+                                ui_state.is_editing_dropdown = false;
+                                if ui_state.focus == Focus::Input { return Ok(UiAction::ChangeInput(ui_state.dropdown_index)); } else if ui_state.focus == Focus::Output { return Ok(UiAction::ChangeOutput(ui_state.dropdown_index)); }
+                            }
+                            KeyCode::Esc => { ui_state.is_editing_dropdown = false; }
+                            _ => {}
+                        }
+                    } else {
+                        // Global Navigation map
+                        match key.code {
+                            KeyCode::Left => {
+                                ui_state.focus = match ui_state.focus {
+                                    Focus::Input => Focus::Input, Focus::Output => Focus::Input, Focus::Mode => Focus::Output, Focus::PitchBend => Focus::Mode, Focus::Channel(0) => Focus::PitchBend, Focus::Channel(i) => Focus::Channel(i - 1),
+                                    Focus::Divisions => Focus::Channel(15), Focus::Interval => Focus::Divisions,
+                                    Focus::GridEdo => Focus::Interval, Focus::GridRefMidi => Focus::GridEdo, Focus::GridRefPitch => Focus::GridRefMidi, Focus::GridHoriz => Focus::GridRefPitch, Focus::GridCapo => if ui_state.grid_unequal_toggle { Focus::GridRefPitch } else { Focus::GridHoriz }, Focus::GridOctave => Focus::GridCapo, Focus::GridUnequalToggle => Focus::GridOctave, Focus::GridUnequal(0) => Focus::GridUnequalToggle, Focus::GridUnequal(i) => Focus::GridUnequal(i-1), Focus::GridOpen(0) => if ui_state.grid_unequal_toggle { Focus::GridUnequal(8) } else { Focus::GridUnequalToggle }, Focus::GridOpen(i) => Focus::GridOpen(i-1),
+                                    Focus::CommandInput => Focus::GridOpen(7),
+                                };
+                            }
+                            KeyCode::Right => {
+                                ui_state.focus = match ui_state.focus {
+                                    Focus::Input => Focus::Output, Focus::Output => Focus::Mode, Focus::Mode => Focus::PitchBend, Focus::PitchBend => Focus::Channel(0), Focus::Channel(15) => Focus::Divisions, Focus::Channel(i) => Focus::Channel(i + 1),
+                                    Focus::Divisions => Focus::Interval, Focus::Interval => Focus::GridEdo,
+                                    Focus::GridEdo => Focus::GridRefMidi, Focus::GridRefMidi => Focus::GridRefPitch, Focus::GridRefPitch => if ui_state.grid_unequal_toggle { Focus::GridCapo } else { Focus::GridHoriz }, Focus::GridHoriz => Focus::GridCapo, Focus::GridCapo => Focus::GridOctave, Focus::GridOctave => Focus::GridUnequalToggle, Focus::GridUnequalToggle => if ui_state.grid_unequal_toggle { Focus::GridUnequal(0) } else { Focus::GridOpen(0) }, Focus::GridUnequal(8) => Focus::GridOpen(0), Focus::GridUnequal(i) => Focus::GridUnequal(i+1), Focus::GridOpen(7) => Focus::CommandInput, Focus::GridOpen(i) => Focus::GridOpen(i+1),
+                                    Focus::CommandInput => Focus::CommandInput,
+                                };
+                            }
+                            KeyCode::Up => { 
+                                ui_state.focus = match ui_state.focus {
+                                    Focus::CommandInput => Focus::GridOpen(7),
+                                    Focus::GridOpen(_) | Focus::GridEdo | Focus::GridRefMidi | Focus::GridRefPitch | Focus::GridHoriz | Focus::GridCapo | Focus::GridOctave | Focus::GridUnequalToggle | Focus::GridUnequal(_) => Focus::Divisions,
+                                    Focus::Divisions | Focus::Interval => Focus::Channel(0),
+                                    _ => ui_state.focus
+                                };
+                            }
+                            KeyCode::Down => { 
+                                ui_state.focus = match ui_state.focus {
+                                    Focus::Input | Focus::Output | Focus::Mode | Focus::PitchBend | Focus::Channel(_) => Focus::Divisions,
+                                    Focus::Divisions | Focus::Interval => Focus::GridEdo,
+                                    Focus::GridEdo | Focus::GridRefMidi | Focus::GridRefPitch | Focus::GridHoriz | Focus::GridCapo | Focus::GridOctave | Focus::GridUnequalToggle | Focus::GridUnequal(_) => Focus::GridOpen(0),
+                                    Focus::GridOpen(_) => Focus::CommandInput,
+                                    _ => ui_state.focus
+                                };
+                            }
+                            KeyCode::Enter => {
+                                match ui_state.focus {
+                                    Focus::Input => { ui_state.is_editing_dropdown = true; ui_state.dropdown_index = ui_state.selected_in; }
+                                    Focus::Output => { ui_state.is_editing_dropdown = true; ui_state.dropdown_index = ui_state.selected_out; }
+                                    Focus::PitchBend => { ui_state.pb_input = state_mutex.lock().unwrap().pitch_bend_range.to_string(); ui_state.is_editing_pb = true; }
+                                    Focus::Divisions => { ui_state.is_editing_divisions = true; ui_state.clear_divisions = true; }
+                                    Focus::Interval => { ui_state.is_editing_interval = true; ui_state.clear_interval = true; }
+                                    Focus::GridEdo | Focus::GridRefMidi | Focus::GridRefPitch | Focus::GridHoriz | Focus::GridCapo | Focus::GridOctave | Focus::GridOpen(_) | Focus::GridUnequal(_) => {
+                                        ui_state.is_editing_grid = true; ui_state.clear_grid = true;
+                                    }
+                                    Focus::GridUnequalToggle => {
+                                        ui_state.grid_unequal_toggle = !ui_state.grid_unequal_toggle;
+                                        let horiz = if ui_state.grid_unequal_toggle { ui_state.grid_unequal.to_vec() } else { vec![ui_state.grid_horiz.clone()] };
+                                        match apply_grid_tuning(state_mutex.clone(), &ui_state.grid_edo, &ui_state.grid_ref_midi, &ui_state.grid_ref_pitch, &ui_state.grid_open, &horiz, &ui_state.grid_capo, &ui_state.grid_octave) {
+                                            Ok(msg) => ui_state.logs.push(msg), Err(e) => ui_state.logs.push(format!("Grid Error: {}", e)),
+                                        }
+                                    }
+                                    Focus::Mode => {
+                                        let mut s = state_mutex.lock().unwrap(); s.is_mpe = !s.is_mpe;
+                                        if s.is_mpe { s.pitch_bend_range = 48; if let Some(conn) = &mut s.out_conn { send_mpe_configuration(conn, 15); } ui_state.logs.push("Switched to MPE. Pitch bend range locked to 48.".to_string()); } 
+                                        else { s.pitch_bend_range = 12; ui_state.logs.push("Switched to Multi-timbral. Pitch bend range reset to 12.".to_string()); }
+                                    }
+                                    Focus::Channel(i) => {
+                                        let mut s = state_mutex.lock().unwrap();
+                                        if s.is_mpe && i == 0 { ui_state.logs.push("Channel 1 is MPE Master (cannot disable).".to_string()); } 
+                                        else { s.channel_enabled[i] = !s.channel_enabled[i]; }
+                                    }
+                                    Focus::CommandInput => {
+                                        let cmd = ui_state.input.trim().to_string(); ui_state.input.clear();
+                                        if cmd == "q" { return Ok(UiAction::Quit); }
+                                        if cmd == "0" {
+                                            disable_raw_mode()?; execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                            let scl_path = prompt_input("Enter path to .scl file: "); let scl_path = scl_path.trim_matches('"').trim_matches('\'');
+                                            match parse_scl(scl_path) {
+                                                Ok(multipliers) => {
+                                                    let kbm_path = prompt_input("Enter path to .kbm file: "); let kbm_path = kbm_path.trim_matches('"').trim_matches('\'');
+                                                    let kbm = if kbm_path.is_empty() { Kbm { map_size: 0, first_note: 0, last_note: 127, middle_note: 69, ref_note: 69, ref_freq: 440.0, formal_octave: (multipliers.len() - 1) as i32, mapping: vec![] } } 
+                                                              else { parse_kbm(kbm_path).unwrap_or(Kbm { map_size: 0, first_note: 0, last_note: 127, middle_note: 69, ref_note: 69, ref_freq: 440.0, formal_octave: 12, mapping: vec![] }) };
+                                                    match apply_custom_tuning(state_mutex.clone(), &multipliers, &kbm) { Ok(_) => ui_state.logs.push(format!("Successfully loaded SCL tuning!")), Err(e) => ui_state.logs.push(format!("SCL Apply Error: {}", e)) }
+                                                }, Err(e) => ui_state.logs.push(format!("SCL Parse Error: {}", e))
+                                            }
+                                            execute!(terminal.backend_mut(), EnterAlternateScreen)?; enable_raw_mode()?; terminal.clear()?;
+                                        } else {
+                                            if update_tuning(state_mutex.clone(), &cmd) { ui_state.logs.push(format!("Preset {} loaded.", cmd)); } 
+                                            else { ui_state.logs.push(format!("Unknown command: {}", cmd)); }
+                                        }
+                                    }
+                                }
+                            }
+                            KeyCode::Char(c) => { if ui_state.focus == Focus::CommandInput { ui_state.input.push(c); } }
+                            KeyCode::Backspace => { if ui_state.focus == Focus::CommandInput { ui_state.input.pop(); } }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        } else {
+            let mut s = state_mutex.lock().unwrap();
+            if s.input_flash > 0 { s.input_flash -= 1; }
+            for f in &mut s.output_flash { if *f > 0 { *f -= 1; } }
+        }
     }
 }
