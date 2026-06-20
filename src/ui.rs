@@ -100,9 +100,9 @@ pub fn run_tui(
                 .margin(1)
                 .constraints([
                     Constraint::Length(7),  // [0] Settings
-                    Constraint::Length(3),  // [1] Presets (New)
-                    Constraint::Min(13),    // [2] Middle Content (ED/Grid + File)
-                    Constraint::Length(6),  // [3] Logs (Short, near bottom)
+                    Constraint::Length(3),  // [1] Presets Panel
+                    Constraint::Min(16),    // [2] Middle Content (ED/Grid + File) - INCREASED HEIGHT
+                    Constraint::Length(5),  // [3] Logs
                     Constraint::Length(3)   // [4] Command Input
                 ].as_ref())
                 .split(f.size());
@@ -111,17 +111,17 @@ pub fn run_tui(
             let middle_chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Percentage(50), // [0] Left Half (ED + Grid)
-                    Constraint::Percentage(50), // [1] Right Half (File)
+                    Constraint::Percentage(58), // [0] Left Half (ED + Grid) - INCREASED WIDTH
+                    Constraint::Percentage(42), // [1] Right Half (File Panel)
                 ].as_ref())
                 .split(main_chunks[2]);
 
-            // --- 3. LEFT VERTICAL SPLIT ---
+            // --- 3. LEFT VERTICAL SPLIT (STACKED) ---
             let left_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(3), // [0] Equal Division
-                    Constraint::Min(10),   // [1] Guitar Grid
+                    Constraint::Min(12),   // [1] Guitar Grid - INCREASED HEIGHT
                 ].as_ref())
                 .split(middle_chunks[0]);
 
@@ -162,10 +162,9 @@ pub fn run_tui(
                 dots_row.push(Span::styled("• ", dot_style));
             }
 
-            // Render to main_chunks[0]
             f.render_widget(Paragraph::new(vec![Line::raw(""), Line::from(top_row), Line::raw(""), Line::from(dots_row)]).block(Block::default().title(" Settings ").borders(Borders::ALL)).wrap(Wrap { trim: true }), main_chunks[0]);
 
-            // --- PRESETS PANEL (NEW) ---
+            // --- PRESETS PANEL ---
             let presets_text = "  1     2     3     4     5     6     7     8     9  ";
             f.render_widget(Paragraph::new(presets_text).block(Block::default().title(" Presets ").borders(Borders::ALL)), main_chunks[1]);
 
@@ -182,22 +181,20 @@ pub fn run_tui(
             let int_style = if ui_state.focus == Focus::Interval { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default() };
             ed_row.push(Span::styled(int_str, int_style));
             
-            // Render to left_chunks[0]
             f.render_widget(Paragraph::new(Line::from(ed_row)).block(Block::default().title(" Equal Division ").borders(Borders::ALL)), left_chunks[0]);
 
             // --- GUITAR GRID PANEL ---
             let grid_block = Block::default().title(" Guitar Grid ").borders(Borders::ALL);
-            // Render to left_chunks[1]
             let inner_grid_area = grid_block.inner(left_chunks[1]);
             f.render_widget(grid_block, left_chunks[1]);
 
-            // Split Grid into Left (Strings) and Right (Math parameters)
-            let grid_splits = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Length(16), Constraint::Min(1)].as_ref()).split(inner_grid_area);
+            let grid_splits = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Length(12), Constraint::Min(1)].as_ref()).split(inner_grid_area);
 
             // Left Side: 8 Open Strings
             let mut string_lines = vec![];
             for i in 0..8 {
-                let string_num = 8 - i;
+                let string_idx = 7 - i; 
+                let string_num = string_idx + 1; 
                 let mut line = Vec::new();
 
                 if i == 0 {
@@ -207,7 +204,7 @@ pub fn run_tui(
                 }
 
                 line.push(Span::raw(format!("{}: ", string_num)));
-                line.push(fmt_box(ui_state, Focus::GridOpen(i), &ui_state.grid_open[i]));
+                line.push(fmt_box(ui_state, Focus::GridOpen(string_idx), &ui_state.grid_open[string_idx]));
                 string_lines.push(Line::from(line));
             }
             f.render_widget(Paragraph::new(string_lines), grid_splits[0]);
@@ -250,17 +247,14 @@ pub fn run_tui(
 
             f.render_widget(Paragraph::new(vec![Line::from(g_row1), Line::from(g_row2), Line::raw(""), Line::from(g_row3), Line::from(g_row4)]), grid_splits[1]);
 
-            // --- FILE PANEL (NEW) ---
-            // Render to middle_chunks[1]
+            // --- FILE PANEL ---
             f.render_widget(Paragraph::new("Placeholder for File I/O").block(Block::default().title(" File ").borders(Borders::ALL)), middle_chunks[1]);
 
             // --- LOGS PANEL ---
-            // Render to main_chunks[3]
             let log_text = ui_state.logs.iter().cloned().collect::<Vec<String>>().join("\n");
             f.render_widget(Paragraph::new(log_text).block(Block::default().title(" Logs ").borders(Borders::ALL)), main_chunks[3]);
 
             // --- COMMAND INPUT ---
-            // Render to main_chunks[4]
             let input_style = if ui_state.focus == Focus::CommandInput { Style::default().fg(Color::Yellow) } else { Style::default() };
             f.render_widget(Paragraph::new(format!("> {}", ui_state.input)).style(input_style).block(Block::default().title(" Command Input (Presets 1-9, '0', 'q') ").borders(Borders::ALL)), main_chunks[4]);
         })?;
