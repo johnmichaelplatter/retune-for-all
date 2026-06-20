@@ -67,6 +67,17 @@ pub struct UiState {
 
 pub enum UiAction { None, Quit, ChangeInput(usize), ChangeOutput(usize) }
 
+// --- Helper function to render underlined labels ---
+pub fn render_labeled(text: &str, hotkey_idx: usize) -> Vec<Span> {
+    let (first, rest) = text.split_at(hotkey_idx);
+    let (hotkey, last) = rest.split_at(1);
+    vec![
+        Span::raw(first),
+        Span::styled(hotkey, Style::default().add_modifier(Modifier::UNDERLINED)),
+        Span::raw(last),
+    ]
+}
+
 pub fn run_tui(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     ui_state: &mut UiState,
@@ -99,17 +110,21 @@ pub fn run_tui(
 
             // --- SETTINGS PANEL ---
             let mut top_row = vec![];
+
+            top_row.extend(render_labeled("Input Device: ", 0));
             let in_str = if ui_state.is_editing_dropdown && ui_state.focus == Focus::Input { format!("< {} >", ui_state.in_ports.get(ui_state.dropdown_index).unwrap_or(&"None".to_string())) } else { format!("[ {} ]", ui_state.in_ports.get(ui_state.selected_in).unwrap_or(&"None".to_string())) };
             let in_style = if ui_state.focus == Focus::Input { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default() };
-            top_row.push(Span::raw("Input Device: ")); top_row.push(Span::styled(in_str, in_style)); top_row.push(Span::raw("   "));
+            top_row.push(Span::styled(in_str, in_style)); top_row.push(Span::raw("   "));
 
+            top_row.extend(render_labeled("Output Device: ", 0));
             let out_str = if ui_state.is_editing_dropdown && ui_state.focus == Focus::Output { format!("< {} >", ui_state.out_ports.get(ui_state.dropdown_index).unwrap_or(&"None".to_string())) } else { format!("[ {} ]", ui_state.out_ports.get(ui_state.selected_out).unwrap_or(&"None".to_string())) };
             let out_style = if ui_state.focus == Focus::Output { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default() };
-            top_row.push(Span::raw("Output Device: ")); top_row.push(Span::styled(out_str, out_style)); top_row.push(Span::raw("   "));
+            top_row.push(Span::styled(out_str, out_style)); top_row.push(Span::raw("   "));
 
+            top_row.extend(render_labeled("Output Type: ", 7));
             let mode_str = if midi_state.is_mpe { "< MPE >" } else { "< Multi-timbral >" };
             let mode_style = if ui_state.focus == Focus::Mode { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default() };
-            top_row.push(Span::raw("Output Type: ")); top_row.push(Span::styled(mode_str, mode_style)); top_row.push(Span::raw("   "));
+            top_row.push(Span::styled(mode_str, mode_style)); top_row.push(Span::raw("   "));
 
             let pb_str = if ui_state.is_editing_pb { format!("< {}_ >", ui_state.pb_input) } else { format!("[ {} ]", midi_state.pitch_bend_range) };
             let pb_style = if ui_state.focus == Focus::PitchBend { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default() };
@@ -129,14 +144,17 @@ pub fn run_tui(
             f.render_widget(Paragraph::new(vec![Line::raw(""), Line::from(top_row), Line::raw(""), Line::from(dots_row)]).block(Block::default().title(" Settings ").borders(Borders::ALL)).wrap(Wrap { trim: true }), chunks[0]);
 
             // --- EQUAL DIVISION PANEL ---
-            let mut ed_row = vec![Span::styled("D", Style::default().add_modifier(Modifier::UNDERLINED)), Span::raw("ivisions: ")];
+            let mut ed_row = vec![];
+
+            ed_row.extend(render_labeled("Divisions: ", 0));
             let div_str = if ui_state.is_editing_divisions { format!("< {}_ >", ui_state.divisions_input) } else { format!("[ {} ]", ui_state.divisions_input) };
             let div_style = if ui_state.focus == Focus::Divisions { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default() };
             ed_row.push(Span::styled(div_str, div_style)); ed_row.push(Span::raw("      "));
 
+            ed_row.extend(render_labeled("Interval to Divide: ", 1));
             let int_str = if ui_state.is_editing_interval { format!("< {}_ >", ui_state.interval_input) } else { format!("[ {} ]", ui_state.interval_input) };
             let int_style = if ui_state.focus == Focus::Interval { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default() };
-            ed_row.push(Span::styled("I", Style::default().add_modifier(Modifier::UNDERLINED))); ed_row.push(Span::raw("nterval to Divide: ")); ed_row.push(Span::styled(int_str, int_style));
+            ed_row.push(Span::styled(int_str, int_style));
             
             f.render_widget(Paragraph::new(Line::from(ed_row)).block(Block::default().title(" Equal Division ").borders(Borders::ALL)), chunks[1]);
 
@@ -151,28 +169,57 @@ pub fn run_tui(
             // Left Side: 8 Open Strings
             let mut string_lines = vec![];
             for i in 0..8 {
-                let mut line = vec![Span::raw(format!("S{}: ", 8 - i))]; // Render visual row (Row 8 to 1 mapping to physical indices 0 to 7)
+                let string_num = 8 - i;
+                let label_text = format!("S{}: ", string_num);
+                
+                // Create a vector to hold the spans for this row
+                let mut line = Vec::new();
+
+                // Only apply the underline if it is the first row (S8)
+                if i == 0 {
+                    // This helper underlines the char at index 0 (the 'S')
+                    line.extend(render_labeled(&label_text, 0));
+                } else {
+                    // Just raw text for S7, S6, etc.
+                    line.push(Span::raw(label_text));
+                }
+                
+                // Add the interactive box
                 line.push(fmt_box(ui_state, Focus::GridOpen(i), &ui_state.grid_open[i]));
+                
                 string_lines.push(Line::from(line));
             }
             f.render_widget(Paragraph::new(string_lines), grid_splits[0]);
 
             // Right Side: Grid Parameters
-            let mut g_row1 = vec![Span::raw("EDO: ")]; g_row1.push(fmt_box(ui_state, Focus::GridEdo, &ui_state.grid_edo));
-            g_row1.push(Span::raw("  Ref MIDI: ")); g_row1.push(fmt_box(ui_state, Focus::GridRefMidi, &ui_state.grid_ref_midi));
-            g_row1.push(Span::raw("  Ref Hz: ")); g_row1.push(fmt_box(ui_state, Focus::GridRefPitch, &ui_state.grid_ref_pitch));
+            let mut g_row1 = vec![];
+            g_row1.extend(render_labeled("EDO: ",0)); g_row1.push(fmt_box(ui_state, Focus::GridEdo, &ui_state.grid_edo));
+            g_row1.extend(render_labeled("  Ref MIDI: ", 0)); g_row1.push(fmt_box(ui_state, Focus::GridRefMidi, &ui_state.grid_ref_midi));
+            g_row1.extend(render_labeled("  Ref Hz: ", 7)); g_row1.push(fmt_box(ui_state, Focus::GridRefPitch, &ui_state.grid_ref_pitch));
             
-            let mut g_row2 = vec![Span::raw("Horiz Step: ")];
+            let mut g_row2 = vec![];
+            g_row2.extend(render_labeled("Horiz Step: ", 0));
             let mut h_step_span = fmt_box(ui_state, Focus::GridHoriz, &ui_state.grid_horiz);
             if ui_state.grid_unequal_toggle { h_step_span = Span::styled(format!("[ {} ]", ui_state.grid_horiz), Style::default().fg(Color::DarkGray)); }
             g_row2.push(h_step_span);
-            g_row2.push(Span::raw("  Capo: ")); g_row2.push(fmt_box(ui_state, Focus::GridCapo, &ui_state.grid_capo));
-            g_row2.push(Span::raw("  Octave: ")); g_row2.push(fmt_box(ui_state, Focus::GridOctave, &ui_state.grid_octave));
+            g_row2.extend(render_labeled("  Capo: ", 3)); g_row2.push(fmt_box(ui_state, Focus::GridCapo, &ui_state.grid_capo));
+            g_row2.extend(render_labeled("  Octave: ", 6)); g_row2.push(fmt_box(ui_state, Focus::GridOctave, &ui_state.grid_octave));
 
-            let toggle_str = if ui_state.grid_unequal_toggle { "[x] Unequal Frets" } else { "[ ] Unequal Frets" };
-            let toggle_style = if ui_state.focus == Focus::GridUnequalToggle { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default() };
-            let mut g_row3 = vec![Span::styled(toggle_str, toggle_style)];
+            let checkbox = if ui_state.grid_unequal_toggle { "[x] " } else { "[ ] " };
 
+            let focus_style = if ui_state.focus == Focus::GridUnequalToggle { 
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) 
+            } else { 
+                Style::default() 
+            };
+
+            let mut g_row3 = vec![Span::styled(checkbox, focus_style)];
+            // The 'U' in "Unequal Frets" is at index 0 of the string "Unequal Frets"
+            g_row3.extend(render_labeled("Unequal Frets", 0));
+
+            for span in &mut g_row3[1..] {
+                span.style = span.style.patch(focus_style);
+            }
             let mut g_row4 = vec![Span::raw("Steps: ")];
             if ui_state.grid_unequal_toggle {
                 for i in 0..9 {
@@ -195,7 +242,37 @@ pub fn run_tui(
         if event::poll(Duration::from_millis(30))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    
+                    if let KeyCode::Char(c) = key.code {
+                        // Only jump if we aren't currently editing a specific text box
+                        if !ui_state.is_editing_grid && !ui_state.is_editing_divisions && 
+                           !ui_state.is_editing_interval && !ui_state.is_editing_dropdown && 
+                           !ui_state.is_editing_pb {
+                            
+                            let new_focus = match c {
+                                'i' => Some(Focus::Input),
+                                'o' => Some(Focus::Output),
+                                't' => Some(Focus::Mode),
+                                'p' => Some(Focus::PitchBend),
+                                'c' => Some(Focus::Channel(0)),
+                                'd' => Some(Focus::Divisions),
+                                'n' => Some(Focus::Interval),
+                                'e' => Some(Focus::GridEdo),
+                                'r' => Some(Focus::GridRefMidi),
+                                'z' => Some(Focus::GridRefPitch),
+                                'h' => Some(Focus::GridHoriz),
+                                'a' => Some(Focus::GridCapo),
+                                'v' => Some(Focus::GridOctave),
+                                'u' => Some(Focus::GridUnequalToggle),
+                                's' => Some(Focus::GridOpen(0)),
+                                _ => None,
+                            };
+
+                            if let Some(f) = new_focus {
+                                ui_state.focus = f;
+                                continue; // Jumped, skip further key processing
+                            }
+                        }
+                    }                    
                     if ui_state.is_editing_pb {
                         match key.code {
                             KeyCode::Char(c) if c.is_ascii_digit() => { if ui_state.pb_input.len() < 3 { ui_state.pb_input.push(c); } }
