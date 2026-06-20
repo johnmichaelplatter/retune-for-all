@@ -18,73 +18,74 @@ pub fn prompt_input(prompt: &str) -> String {
     s.trim().to_string()
 }
 
+pub fn apply_equal_division(state_mutex: Arc<Mutex<MidiState>>, divisions_str: &str, interval_str: &str) -> Result<String, String> {
+    let divisions: f32 = divisions_str.parse().map_err(|_| "Invalid divisions integer")?;
+    if divisions <= 0.0 { return Err("Divisions must be > 0".into()); }
+
+    let ratio = if interval_str.contains('.') {
+        let cents: f32 = interval_str.parse().map_err(|_| "Invalid cents")?;
+        2.0_f32.powf(cents / 1200.0)
+    } else if interval_str.contains('/') {
+        let mut parts = interval_str.split('/');
+        let num: f32 = parts.next().unwrap_or("").parse().map_err(|_| "Invalid numerator")?;
+        let den: f32 = parts.next().unwrap_or("").parse().map_err(|_| "Invalid denominator")?;
+        if den == 0.0 { return Err("Denominator cannot be 0".into()); }
+        num / den
+    } else {
+        interval_str.parse::<f32>().map_err(|_| "Invalid interval ratio")?
+    };
+
+    if ratio <= 0.0 { return Err("Interval ratio must be > 0".into()); }
+
+    let mut state = state_mutex.lock().unwrap();
+    let pitch_ref = state.synth_ref_note as f32;
+    let pitch_center = state.synth_pitch_center;
+
+    for i in 0..128 {
+        state.tuning[i] = pitch_center * ratio.powf((i as f32 - pitch_ref) / divisions);
+    }
+
+    Ok(format!("Applied Equal Division: {} steps of {}", divisions_str, interval_str))
+}
+
 pub fn setup_grid_tuning(state_mutex: Arc<Mutex<MidiState>>) -> Result<String, Box<dyn Error>> {
     println!("\n--- Launchpad S Grid Microtuning ---");
     let edo: f32 = prompt_input("EDO (e.g., 41): ").parse()?;
-    
-    // Restored the missing prompt so your input sequence matches!
     let _ref_midi: i32 = prompt_input("Reference MIDI number (e.g., 69 for A4): ").parse()?; 
     let ref_pitch: f32 = prompt_input("Reference pitch in Hz (e.g., 440.0): ").parse()?;
     
-    // Updated prompt text to remind the user of the bottom-to-top order
     let open_str_input = prompt_input("Open strings (8 integers offset from Ref, comma-separated, BOTTOM row first): ");
-    
-    // Changed to mut so we can reverse it
     let mut open_strings: Vec<i32> = open_str_input.split(',').filter_map(|s| s.trim().parse().ok()).collect();
-    if open_strings.len() != 8 {
-        return Err("You must provide exactly 8 integers for the open strings.".into());
-    }
-
-    // Reverse the array so index 0 (the user's first input) maps to the highest row index (Row 7 / bottom of the Launchpad)
+    if open_strings.len() != 8 { return Err("Provide exactly 8 integers.".into()); }
     open_strings.reverse();
 
     let steps_input = prompt_input("Horizontal step sizes (1 integer for uniform steps, or 9 comma-separated integers): ");
     let horiz_steps: Vec<i32> = steps_input.split(',').filter_map(|s| s.trim().parse().ok()).collect();
-    if horiz_steps.is_empty() {
-        return Err("You must provide at least 1 horizontal step size.".into());
-    }
+    if horiz_steps.is_empty() { return Err("Provide at least 1 horizontal step size.".into()); }
 
     let scroll: i32 = prompt_input("Scroll offset (integer, e.g. 0): ").parse()?;
 
-    // Helper to calculate cumulative horizontal steps based on a cycling step array
     let calc_horiz_offset = |fret: i32| -> i32 {
         let mut offset = 0;
-        if fret > 0 {
-            for i in 0..fret {
-                offset += horiz_steps[i as usize % horiz_steps.len()];
-            }
-        } else if fret < 0 {
-            for i in fret..0 {
-                let idx = i.rem_euclid(horiz_steps.len() as i32) as usize;
-                offset -= horiz_steps[idx];
-            }
-        }
+        if fret > 0 { for i in 0..fret { offset += horiz_steps[i as usize % horiz_steps.len()]; } }
+        else if fret < 0 { for i in fret..0 { offset -= horiz_steps[i.rem_euclid(horiz_steps.len() as i32) as usize]; } }
         offset
     };
 
     let mut new_tuning = [0.0; 128]; 
-    
     for row in 0..8 {
         for col in 0..9 {
             let midi_note = row * 16 + col;
             if midi_note < 128 {
-                let current_fret = col + scroll;
-                let h_offset = calc_horiz_offset(current_fret);
-                
-                // Because we reversed the array, row 0 (top of the launchpad) now grabs the last element the user typed
+                let h_offset = calc_horiz_offset(col + scroll);
                 let total_edo_steps = open_strings[row as usize] + h_offset;
-                
-                // Calculate frequency
-                let hz = ref_pitch * 2.0_f32.powf(total_edo_steps as f32 / edo);
-                new_tuning[midi_note as usize] = hz;
+                new_tuning[midi_note as usize] = ref_pitch * 2.0_f32.powf(total_edo_steps as f32 / edo);
             }
         }
     }
 
     let mut state = state_mutex.lock().unwrap();
     state.tuning = new_tuning;
-    
-    // Instead of printing to the console, we return the string to the TUI to be logged!
     Ok(format!("Successfully mapped Launchpad S grid to {} EDO!", edo))
 }
 
@@ -132,9 +133,8 @@ pub fn parse_scl(path: &str) -> Result<Vec<f32>, Box<dyn Error>> {
     let mut multipliers = Vec::with_capacity(num_notes + 1);
     multipliers.push(1.0);
 
-    let mut count = 0;
     for line in lines {
-        if count >= num_notes { break; }
+        if multipliers.len() > num_notes { break; }
         let trimmed = line.trim();
         if trimmed.is_empty() { continue; } 
         let token = trimmed.split_whitespace().next().unwrap_or("");
@@ -143,7 +143,6 @@ pub fn parse_scl(path: &str) -> Result<Vec<f32>, Box<dyn Error>> {
                          else { token.parse::<f32>()? };
         if multiplier <= 0.0 { return Err("Invalid".into()); }
         multipliers.push(multiplier);
-        count += 1;
     }
     Ok(multipliers)
 }
