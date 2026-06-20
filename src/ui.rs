@@ -170,27 +170,25 @@ pub fn run_tui(
             let mut string_lines = vec![];
             for i in 0..8 {
                 let string_num = 8 - i;
-                let label_text = format!("S{}: ", string_num);
-                
-                // Create a vector to hold the spans for this row
                 let mut line = Vec::new();
 
-                // Only apply the underline if it is the first row (S8)
+                // 1. Handle the 'S' character (Static string, no lifetime issues)
                 if i == 0 {
-                    // This helper underlines the char at index 0 (the 'S')
-                    line.extend(render_labeled(&label_text, 0));
+                    line.push(Span::styled("S", Style::default().add_modifier(Modifier::UNDERLINED)));
                 } else {
-                    // Just raw text for S7, S6, etc.
-                    line.push(Span::raw(label_text));
+                    line.push(Span::raw("S"));
                 }
+
+                // 2. Handle the rest of the label (Passes an owned String directly to Span)
+                line.push(Span::raw(format!("{}: ", string_num)));
                 
-                // Add the interactive box
+                // 3. Add the input box
                 line.push(fmt_box(ui_state, Focus::GridOpen(i), &ui_state.grid_open[i]));
                 
+                // 4. Assemble the line
                 string_lines.push(Line::from(line));
             }
             f.render_widget(Paragraph::new(string_lines), grid_splits[0]);
-
             // Right Side: Grid Parameters
             let mut g_row1 = vec![];
             g_row1.extend(render_labeled("EDO: ",0)); g_row1.push(fmt_box(ui_state, Focus::GridEdo, &ui_state.grid_edo));
