@@ -10,9 +10,10 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Style, Modifier},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap, Tabs},
     Terminal,
 };
+use ratatui_textarea::TextArea;
 
 use crate::midi::{MidiState, send_mpe_configuration};
 use crate::tuning::{prompt_input, apply_grid_tuning, update_tuning, parse_scl, parse_kbm, apply_custom_tuning, apply_equal_division, Kbm};
@@ -22,11 +23,11 @@ pub enum Focus {
     Input, Output, Mode, PitchBend, Channel(usize),
     Divisions, Interval,
     
-    // New Grid Focus States
     GridEdo, GridRefMidi, GridRefPitch, GridHoriz, GridCapo, GridOctave,
     GridUnequalToggle, GridUnequal(usize), GridOpen(usize),
     
-    CommandInput,
+    CommandInput, 
+    Notepad, // <-- Added Notepad focus state
 }
 
 pub struct UiState {
@@ -43,7 +44,6 @@ pub struct UiState {
     pub clear_interval: bool,
     pub interval_input: String,
 
-    // New Grid Buffers
     pub grid_edo: String,
     pub grid_ref_midi: String,
     pub grid_ref_pitch: String,
@@ -63,11 +63,66 @@ pub struct UiState {
     pub selected_out: usize,
     pub input: String,
     pub logs: Vec<String>,
+
+    pub active_file_tab: usize,
+    pub is_typing_in_notepad: bool,
+    pub scl_textarea: ratatui_textarea::TextArea<'static>,
+    pub kbm_textarea: ratatui_textarea::TextArea<'static>,
+}
+
+impl<'a> Default for UiState<'a> {
+    fn default() -> Self {
+        let mut scl = TextArea::default();
+        scl.set_block(Block::default().borders(Borders::TOP));
+        scl.insert_str("! 12 EDO\n12\n!\n100.0\n200.0\n300.0\n"); 
+        
+        let mut kbm = TextArea::default();
+        kbm.set_block(Block::default().borders(Borders::TOP));
+        kbm.insert_str("! Template for a keyboard mapping\nSize of map:\n12\n...");
+
+        Self {
+            focus: Focus::CommandInput,
+            is_editing_dropdown: false,
+            is_editing_pb: false,
+            pb_input: String::new(),
+
+            is_editing_divisions: false,
+            clear_divisions: false,
+            divisions_input: "12".to_string(),
+
+            is_editing_interval: false,
+            clear_interval: false,
+            interval_input: "2/1".to_string(),
+
+            grid_edo: "41".to_string(),
+            grid_ref_midi: "48".to_string(),
+            grid_ref_pitch: "260.89".to_string(),
+            grid_horiz: "2".to_string(),
+            grid_capo: "0".to_string(),
+            grid_octave: "0".to_string(),
+            grid_open: ["13".to_string(), "0".to_string(), "-17".to_string(), "-28".to_string(), "-41".to_string(), "-52".to_string(), "-65".to_string(), "-82".to_string()],
+            grid_unequal: ["2".to_string(), "2".to_string(), "2".to_string(), "2".to_string(), "2".to_string(), "2".to_string(), "2".to_string(), "2".to_string(), "2".to_string()],
+            grid_unequal_toggle: false,
+            is_editing_grid: false,
+            clear_grid: false,
+
+            dropdown_index: 0,
+            in_ports: vec![],
+            out_ports: vec![],
+            selected_in: 0,
+            selected_out: 0,
+            input: String::new(),
+            logs: vec!["Welcome to Poly-Router!".into(), "Navigate to Settings with Arrow Keys to Configure.".into()],            
+            active_file_tab: 0,
+            is_typing_in_notepad: false,
+            scl_textarea: scl,
+            kbm_textarea: kbm,
+        }
+    }
 }
 
 pub enum UiAction { None, Quit, ChangeInput(usize), ChangeOutput(usize) }
 
-// --- Helper function to render underlined labels ---
 pub fn render_labeled(text: &str, hotkey_idx: usize) -> Vec<Span> {
     let (first, rest) = text.split_at(hotkey_idx);
     let (hotkey, last) = rest.split_at(1);
@@ -84,7 +139,6 @@ pub fn run_tui(
     state_mutex: Arc<Mutex<MidiState>>
 ) -> Result<UiAction, Box<dyn std::error::Error>> {
     
-    // Helper to format edit boxes dynamically
     let fmt_box = |ui_state: &UiState, focus: Focus, val: &str| -> Span {
         let is_focused = ui_state.focus == focus;
         let text = if ui_state.is_editing_grid && is_focused { format!("<{}_>", val) } else { format!("[{}]", val) };
@@ -94,34 +148,31 @@ pub fn run_tui(
 
     loop {
         terminal.draw(|f| {
-            // --- 1. MAIN VERTICAL LAYOUT ---
             let main_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .margin(1)
                 .constraints([
-                    Constraint::Length(7),  // [0] Settings
-                    Constraint::Length(3),  // [1] Presets Panel
-                    Constraint::Min(16),    // [2] Middle Content (ED/Grid + File) - INCREASED HEIGHT
-                    Constraint::Length(5),  // [3] Logs
-                    Constraint::Length(3)   // [4] Command Input
+                    Constraint::Length(7),
+                    Constraint::Length(3),
+                    Constraint::Min(16),
+                    Constraint::Length(5),
+                    Constraint::Length(3)
                 ].as_ref())
                 .split(f.size());
 
-            // --- 2. MIDDLE HORIZONTAL SPLIT ---
             let middle_chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Percentage(58), // [0] Left Half (ED + Grid) - INCREASED WIDTH
-                    Constraint::Percentage(42), // [1] Right Half (File Panel)
+                    Constraint::Percentage(58),
+                    Constraint::Percentage(42),
                 ].as_ref())
                 .split(main_chunks[2]);
 
-            // --- 3. LEFT VERTICAL SPLIT (STACKED) ---
             let left_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(3), // [0] Equal Division
-                    Constraint::Min(12),   // [1] Guitar Grid - INCREASED HEIGHT
+                    Constraint::Length(3),
+                    Constraint::Min(12),
                 ].as_ref())
                 .split(middle_chunks[0]);
 
@@ -224,19 +275,13 @@ pub fn run_tui(
             g_row2.extend(render_labeled("  Octave: ", 6)); g_row2.push(fmt_box(ui_state, Focus::GridOctave, &ui_state.grid_octave));
 
             let checkbox = if ui_state.grid_unequal_toggle { "[x] " } else { "[ ] " };
-
-            let focus_style = if ui_state.focus == Focus::GridUnequalToggle { 
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) 
-            } else { 
-                Style::default() 
-            };
+            let focus_style = if ui_state.focus == Focus::GridUnequalToggle { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default() };
 
             let mut g_row3 = vec![Span::styled(checkbox, focus_style)];
             g_row3.extend(render_labeled("Unequal Frets", 0));
 
-            for span in &mut g_row3[1..] {
-                span.style = span.style.patch(focus_style);
-            }
+            for span in &mut g_row3[1..] { span.style = span.style.patch(focus_style); }
+            
             let mut g_row4 = vec![Span::raw("Steps: ")];
             if ui_state.grid_unequal_toggle {
                 for i in 0..9 {
@@ -248,19 +293,55 @@ pub fn run_tui(
             f.render_widget(Paragraph::new(vec![Line::from(g_row1), Line::from(g_row2), Line::raw(""), Line::from(g_row3), Line::from(g_row4)]), grid_splits[1]);
 
             // --- FILE PANEL ---
-            f.render_widget(Paragraph::new("Placeholder for File I/O").block(Block::default().title(" File ").borders(Borders::ALL)), middle_chunks[1]);
+            let file_border_color = if ui_state.focus == Focus::Notepad && !ui_state.is_typing_in_notepad { Color::Yellow } else { Color::White };
+            let file_block = Block::default().title(" File ").borders(Borders::ALL).border_style(Style::default().fg(file_border_color));
+            let file_area = file_block.inner(middle_chunks[1]);
+            f.render_widget(file_block, middle_chunks[1]);
+
+            let file_splits = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(2), Constraint::Length(1), Constraint::Min(5)].as_ref())
+                .split(file_area);
+
+            // Tabs
+            let scl_tab = Line::from(vec![Span::raw(" S"), Span::styled("C", Style::default().add_modifier(Modifier::UNDERLINED)), Span::raw("L ")]);
+            let kbm_tab = Line::from(vec![Span::raw(" K"), Span::styled("B", Style::default().add_modifier(Modifier::UNDERLINED)), Span::raw("M ")]);
+
+            let tabs = Tabs::new(vec![scl_tab, kbm_tab])
+                .select(ui_state.active_file_tab)
+                .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                .divider("|");
+            f.render_widget(tabs, file_splits[0]);
+
+            // Buttons
+            let mut btn_row = vec![];
+            btn_row.push(Span::raw("[ ")); btn_row.push(Span::styled("L", Style::default().add_modifier(Modifier::UNDERLINED))); btn_row.push(Span::raw("oad .scl ]  "));
+            btn_row.push(Span::raw("[ ")); btn_row.push(Span::styled("O", Style::default().add_modifier(Modifier::UNDERLINED))); btn_row.push(Span::raw("pen .kbm ]  "));
+            btn_row.push(Span::raw("[ ")); btn_row.push(Span::styled("C", Style::default().add_modifier(Modifier::UNDERLINED))); btn_row.push(Span::raw("lear .scl ]  "));
+            btn_row.push(Span::raw("[ Cl")); btn_row.push(Span::styled("e", Style::default().add_modifier(Modifier::UNDERLINED))); btn_row.push(Span::raw("ar .kbm ]"));
+            f.render_widget(Paragraph::new(Line::from(btn_row)), file_splits[1]);
+
+            // Notepad (TextArea) Dynamic Highlighting
+            let active_color = if ui_state.is_typing_in_notepad { Color::Green } else if ui_state.focus == Focus::Notepad { Color::Yellow } else { Color::DarkGray };
+            ui_state.scl_textarea.set_block(Block::default().borders(Borders::TOP).border_style(Style::default().fg(if ui_state.active_file_tab == 0 { active_color } else { Color::DarkGray })));
+            ui_state.kbm_textarea.set_block(Block::default().borders(Borders::TOP).border_style(Style::default().fg(if ui_state.active_file_tab == 1 { active_color } else { Color::DarkGray })));
+
+            if ui_state.active_file_tab == 0 {
+                f.render_widget(&ui_state.scl_textarea, file_splits[2]);
+            } else {
+                f.render_widget(&ui_state.kbm_textarea, file_splits[2]);
+            }
 
             // --- LOGS PANEL ---
             let log_block = Block::default().title(" Logs ").borders(Borders::ALL);
-            let log_area = log_block.inner(main_chunks[3]); // Get the drawable area inside the borders
+            let log_area = log_block.inner(main_chunks[3]);
             
-            // Calculate how many lines can fit, and slice only the newest logs
             let visible_lines = log_area.height as usize;
             let start_idx = ui_state.logs.len().saturating_sub(visible_lines);
             
             let log_text = ui_state.logs[start_idx..].join("\n");
             f.render_widget(Paragraph::new(log_text).block(log_block), main_chunks[3]);
-            
+
             // --- COMMAND INPUT ---
             let input_style = if ui_state.focus == Focus::CommandInput { Style::default().fg(Color::Yellow) } else { Style::default() };
             f.render_widget(Paragraph::new(format!("> {}", ui_state.input)).style(input_style).block(Block::default().title(" Command Input (Presets 1-9, '0', 'q') ").borders(Borders::ALL)), main_chunks[4]);
@@ -270,10 +351,10 @@ pub fn run_tui(
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     if let KeyCode::Char(c) = key.code {
-                        // Only jump if we aren't currently editing a specific text box
+                        // Protect against hotkey jumps when typing inside the notepad
                         if !ui_state.is_editing_grid && !ui_state.is_editing_divisions && 
                            !ui_state.is_editing_interval && !ui_state.is_editing_dropdown && 
-                           !ui_state.is_editing_pb {
+                           !ui_state.is_editing_pb && !ui_state.is_typing_in_notepad {
                             
                             let new_focus = match c {
                                 'i' => Some(Focus::Input),
@@ -291,12 +372,13 @@ pub fn run_tui(
                                 'v' => Some(Focus::GridOctave),
                                 'u' => Some(Focus::GridUnequalToggle),
                                 's' => Some(Focus::GridOpen(0)),
+                                'f' => Some(Focus::Notepad), // Added quick jump
                                 _ => None,
                             };
 
                             if let Some(f) = new_focus {
                                 ui_state.focus = f;
-                                continue; // Jumped, skip further key processing
+                                continue; 
                             }
                         }
                     }                    
@@ -327,6 +409,40 @@ pub fn run_tui(
                             }
                             KeyCode::Esc => { ui_state.is_editing_divisions = false; ui_state.is_editing_interval = false; }
                             _ => {}
+                        }
+                    } else if ui_state.is_typing_in_notepad {
+                        match key.code {
+                            KeyCode::Esc => { 
+                                // Exit the notepad
+                                ui_state.is_typing_in_notepad = false; 
+                                ui_state.logs.push("Exited Notepad.".to_string());
+                            }
+                            KeyCode::Tab => {
+                                // Switch focus between SCL and KBM tabs
+                                ui_state.active_file_tab = if ui_state.active_file_tab == 0 { 1 } else { 0 };
+                            }
+                            KeyCode::Enter => {
+                                // Let the textarea process the newline first
+                                if ui_state.active_file_tab == 0 {
+                                    ui_state.scl_textarea.input(key);
+                                    let scl_content = ui_state.scl_textarea.lines().join("\n");
+                                    // TODO: Call parse_scl() equivalent
+                                    ui_state.logs.push("SCL tuning updated.".to_string());
+                                } else {
+                                    ui_state.kbm_textarea.input(key);
+                                    let kbm_content = ui_state.kbm_textarea.lines().join("\n");
+                                    // TODO: Call parse_kbm() equivalent
+                                    ui_state.logs.push("KBM mapping updated.".to_string());
+                                }
+                            }
+                            _ => {
+                                // Route all other typing natively
+                                if ui_state.active_file_tab == 0 {
+                                    ui_state.scl_textarea.input(key);
+                                } else {
+                                    ui_state.kbm_textarea.input(key);
+                                }
+                            }
                         }
                     } else if ui_state.is_editing_grid {
                         match key.code {
@@ -387,6 +503,7 @@ pub fn run_tui(
                                     Focus::Input => Focus::Input, Focus::Output => Focus::Input, Focus::Mode => Focus::Output, Focus::PitchBend => Focus::Mode, Focus::Channel(0) => Focus::PitchBend, Focus::Channel(i) => Focus::Channel(i - 1),
                                     Focus::Divisions => Focus::Channel(15), Focus::Interval => Focus::Divisions,
                                     Focus::GridEdo => Focus::Interval, Focus::GridRefMidi => Focus::GridEdo, Focus::GridRefPitch => Focus::GridRefMidi, Focus::GridHoriz => Focus::GridRefPitch, Focus::GridCapo => if ui_state.grid_unequal_toggle { Focus::GridRefPitch } else { Focus::GridHoriz }, Focus::GridOctave => Focus::GridCapo, Focus::GridUnequalToggle => Focus::GridOctave, Focus::GridUnequal(0) => Focus::GridUnequalToggle, Focus::GridUnequal(i) => Focus::GridUnequal(i-1), Focus::GridOpen(0) => if ui_state.grid_unequal_toggle { Focus::GridUnequal(8) } else { Focus::GridUnequalToggle }, Focus::GridOpen(i) => Focus::GridOpen(i-1),
+                                    Focus::Notepad => Focus::GridRefPitch, // Jump back to left side
                                     Focus::CommandInput => Focus::GridOpen(7),
                                 };
                             }
@@ -394,7 +511,14 @@ pub fn run_tui(
                                 ui_state.focus = match ui_state.focus {
                                     Focus::Input => Focus::Output, Focus::Output => Focus::Mode, Focus::Mode => Focus::PitchBend, Focus::PitchBend => Focus::Channel(0), Focus::Channel(15) => Focus::Divisions, Focus::Channel(i) => Focus::Channel(i + 1),
                                     Focus::Divisions => Focus::Interval, Focus::Interval => Focus::GridEdo,
-                                    Focus::GridEdo => Focus::GridRefMidi, Focus::GridRefMidi => Focus::GridRefPitch, Focus::GridRefPitch => if ui_state.grid_unequal_toggle { Focus::GridCapo } else { Focus::GridHoriz }, Focus::GridHoriz => Focus::GridCapo, Focus::GridCapo => Focus::GridOctave, Focus::GridOctave => Focus::GridUnequalToggle, Focus::GridUnequalToggle => if ui_state.grid_unequal_toggle { Focus::GridUnequal(0) } else { Focus::GridOpen(0) }, Focus::GridUnequal(8) => Focus::GridOpen(0), Focus::GridUnequal(i) => Focus::GridUnequal(i+1), Focus::GridOpen(7) => Focus::CommandInput, Focus::GridOpen(i) => Focus::GridOpen(i+1),
+                                    Focus::GridEdo => Focus::GridRefMidi, Focus::GridRefMidi => Focus::GridRefPitch, 
+                                    Focus::GridRefPitch => Focus::Notepad, // Jump to Notepad
+                                    Focus::GridHoriz => Focus::GridCapo, Focus::GridCapo => Focus::GridOctave, 
+                                    Focus::GridOctave => Focus::Notepad, // Jump to Notepad
+                                    Focus::GridUnequalToggle => if ui_state.grid_unequal_toggle { Focus::GridUnequal(0) } else { Focus::Notepad }, 
+                                    Focus::GridUnequal(8) => Focus::Notepad, // Jump to Notepad
+                                    Focus::GridUnequal(i) => Focus::GridUnequal(i+1), Focus::GridOpen(7) => Focus::CommandInput, Focus::GridOpen(i) => Focus::GridOpen(i+1),
+                                    Focus::Notepad => Focus::Notepad,
                                     Focus::CommandInput => Focus::CommandInput,
                                 };
                             }
@@ -441,6 +565,10 @@ pub fn run_tui(
                                         let mut s = state_mutex.lock().unwrap();
                                         if s.is_mpe && i == 0 { ui_state.logs.push("Channel 1 is MPE Master (cannot disable).".to_string()); } 
                                         else { s.channel_enabled[i] = !s.channel_enabled[i]; }
+                                    }
+                                    Focus::Notepad => {
+                                        ui_state.is_typing_in_notepad = true;
+                                        ui_state.logs.push("Entered Notepad. Press Esc to exit. Press Tab to switch files.".to_string());
                                     }
                                     Focus::CommandInput => {
                                         let cmd = ui_state.input.trim().to_string(); ui_state.input.clear();

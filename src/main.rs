@@ -8,6 +8,7 @@ use std::io;
 use std::sync::{Arc, Mutex};
 use crossterm::{execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
 use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::widgets::{Block, Borders}; // Added for default text area block formatting
 
 use midi::{MidiState, process_midi, send_mpe_configuration};
 use ui::{UiState, Focus, UiAction, run_tui};
@@ -37,6 +38,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     }));
     update_tuning(state.clone(), "1");
 
+    // --- PRE-CONFIGURE THE NOTEPAD TEXTAREAS ---
+    let mut scl_textarea = ratatui_textarea::TextArea::default();
+    scl_textarea.set_block(Block::default().borders(Borders::TOP));
+    scl_textarea.insert_str("! 12 EDO\n12\n!\n100.0\n200.0\n300.0\n"); 
+
+    let mut kbm_textarea = ratatui_textarea::TextArea::default();
+    kbm_textarea.set_block(Block::default().borders(Borders::TOP));
+    kbm_textarea.insert_str("! Template for a keyboard mapping\nSize of map:\n12\n...\n");
+
     let mut ui_state = UiState {
         focus: Focus::CommandInput,
         is_editing_dropdown: false,
@@ -51,7 +61,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         clear_interval: false,
         interval_input: "2/1".to_string(),
 
-        // --- NEW GRID INITIALIZERS ---
+        // --- GRID INITIALIZERS ---
         grid_edo: "41".to_string(),
         grid_ref_midi: "48".to_string(),
         grid_ref_pitch: "260.89".to_string(),
@@ -63,7 +73,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         grid_unequal_toggle: false,
         is_editing_grid: false,
         clear_grid: false,
-        // ------------------------------
+
+        // --- NEW NOTEPAD FILE INITIALIZERS ---
+        active_file_tab: 0,
+        is_typing_in_notepad: false,
+        scl_textarea,
+        kbm_textarea,
+        // -------------------------------------
 
         dropdown_index: 0,
         in_ports: vec![],
