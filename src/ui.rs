@@ -70,7 +70,7 @@ pub struct UiState {
     pub kbm_textarea: ratatui_textarea::TextArea<'static>,
 }
 
-impl<'a> Default for UiState<'a> {
+impl Default for UiState {
     fn default() -> Self {
         let mut scl = TextArea::default();
         scl.set_block(Block::default().borders(Borders::TOP));
