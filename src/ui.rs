@@ -251,9 +251,16 @@ pub fn run_tui(
             f.render_widget(Paragraph::new("Placeholder for File I/O").block(Block::default().title(" File ").borders(Borders::ALL)), middle_chunks[1]);
 
             // --- LOGS PANEL ---
-            let log_text = ui_state.logs.iter().cloned().collect::<Vec<String>>().join("\n");
-            f.render_widget(Paragraph::new(log_text).block(Block::default().title(" Logs ").borders(Borders::ALL)), main_chunks[3]);
-
+            let log_block = Block::default().title(" Logs ").borders(Borders::ALL);
+            let log_area = log_block.inner(main_chunks[3]); // Get the drawable area inside the borders
+            
+            // Calculate how many lines can fit, and slice only the newest logs
+            let visible_lines = log_area.height as usize;
+            let start_idx = ui_state.logs.len().saturating_sub(visible_lines);
+            
+            let log_text = ui_state.logs[start_idx..].join("\n");
+            f.render_widget(Paragraph::new(log_text).block(log_block), main_chunks[3]);
+            
             // --- COMMAND INPUT ---
             let input_style = if ui_state.focus == Focus::CommandInput { Style::default().fg(Color::Yellow) } else { Style::default() };
             f.render_widget(Paragraph::new(format!("> {}", ui_state.input)).style(input_style).block(Block::default().title(" Command Input (Presets 1-9, '0', 'q') ").borders(Borders::ALL)), main_chunks[4]);
