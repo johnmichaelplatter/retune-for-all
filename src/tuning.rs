@@ -51,7 +51,7 @@ pub fn apply_equal_division(state_mutex: Arc<Mutex<MidiState>>, divisions_str: &
 pub fn apply_grid_tuning(
     state_mutex: Arc<Mutex<MidiState>>,
     edo_str: &str,
-    _ref_midi_str: &str, // Parsed for validation but inherently unused in physical pad index math
+    _ref_midi_str: &str, 
     ref_pitch_str: &str,
     open_strings: &[String; 8],
     horiz_steps: &[String],
@@ -87,7 +87,6 @@ pub fn apply_grid_tuning(
             let midi_note = row * 16 + col;
             if midi_note < 128 {
                 let h_offset = calc_horiz_offset(col + capo);
-                // Shift by n steps in n-EDO if octave is > 0 or < 0
                 let total_edo_steps = parsed_open[row as usize] + h_offset + (octave * edo as i32);
                 new_tuning[midi_note as usize] = ref_pitch * 2.0_f32.powf(total_edo_steps as f32 / edo);
             }
@@ -131,55 +130,93 @@ pub fn apply_custom_tuning(state_mutex: Arc<Mutex<MidiState>>, multipliers: &[f3
     Ok(())
 }
 
-pub fn parse_scl(path: &str) -> Result<Vec<f32>, Box<dyn Error>> {
-    let contents = fs::read_to_string(path)?;
-    let mut lines = contents.lines().filter(|l| !l.trim().starts_with('!'));
-    let _ = lines.next().ok_or("Missing description")?;
-    let mut nn_line = lines.next().ok_or("Missing")?.trim();
-    while nn_line.is_empty() { nn_line = lines.next().ok_or("Missing")?.trim(); }
-    let num_notes: usize = nn_line.parse()?;
+// --- NEW NOTEPAD CONTENT PARSERS ---
+
+pub fn parse_scl_content(lines: &[String]) -> Result<Vec<f32>, String> {
+    let mut it = lines.iter().filter(|l| !l.trim().starts_with('!'));
+    let _ = it.next().ok_or("Missing SCL description")?;
+    let mut nn_line = it.next().ok_or("Missing SCL note count")?.trim();
+    while nn_line.is_empty() { nn_line = it.next().ok_or("Missing SCL note count")?.trim(); }
+    let num_notes: usize = nn_line.parse().map_err(|_| "Invalid SCL note count")?;
     
     if num_notes == 0 { return Err("0-note unsupported.".into()); }
     let mut multipliers = Vec::with_capacity(num_notes + 1);
     multipliers.push(1.0);
 
-    for line in lines {
+    for line in it {
         if multipliers.len() > num_notes { break; }
         let trimmed = line.trim();
         if trimmed.is_empty() { continue; } 
         let token = trimmed.split_whitespace().next().unwrap_or("");
-        let multiplier = if token.contains('.') { 2.0_f32.powf(token.parse::<f32>()? / 1200.0) } 
-                         else if token.contains('/') { let mut p = token.split('/'); p.next().unwrap().parse::<f32>()? / p.next().unwrap().parse::<f32>()? } 
-                         else { token.parse::<f32>()? };
-        if multiplier <= 0.0 { return Err("Invalid".into()); }
+        let multiplier = if token.contains('.') { 
+            2.0_f32.powf(token.parse::<f32>().map_err(|_| "Invalid cents")? / 1200.0) 
+        } else if token.contains('/') { 
+            let mut p = token.split('/'); 
+            let num = p.next().unwrap_or("").parse::<f32>().map_err(|_| "Invalid numerator")?;
+            let den = p.next().unwrap_or("").parse::<f32>().map_err(|_| "Invalid denominator")?;
+            if den == 0.0 { return Err("Divide by zero".into()); }
+            num / den
+        } else { 
+            token.parse::<f32>().map_err(|_| "Invalid ratio")? 
+        };
+        if multiplier <= 0.0 { return Err("Multiplier must be positive".into()); }
         multipliers.push(multiplier);
     }
     Ok(multipliers)
 }
 
-pub fn parse_kbm(path: &str) -> Result<Kbm, Box<dyn Error>> {
-    let contents = fs::read_to_string(path)?;
-    let mut lines = contents.lines().filter(|l| !l.trim().starts_with('!'));
-    let mut next_val = || -> Result<&str, Box<dyn Error>> { loop { let l = lines.next().ok_or("EOF")?.trim(); if !l.is_empty() { return Ok(l); } } };
+pub fn parse_kbm_content(lines: &[String]) -> Result<Kbm, String> {
+    let mut it = lines.iter().filter(|l| !l.trim().starts_with('!'));
+    let mut next_val = || -> Result<&str, String> { 
+        loop { 
+            let l = it.next().ok_or("Incomplete KBM data")?.trim(); 
+            if !l.is_empty() { return Ok(l); } 
+        } 
+    };
 
-    let map_size: i32 = next_val()?.parse()?;
-    let first_note: i32 = next_val()?.parse()?;
-    let last_note: i32 = next_val()?.parse()?;
-    let middle_note: i32 = next_val()?.parse()?;
-    let ref_note: i32 = next_val()?.parse()?;
-    let ref_freq: f32 = next_val()?.parse()?;
-    let formal_octave: i32 = next_val()?.parse()?;
+    let map_size: i32 = next_val()?.parse().map_err(|_| "Invalid map size")?;
+    let first_note: i32 = next_val()?.parse().map_err(|_| "Invalid first note")?;
+    let last_note: i32 = next_val()?.parse().map_err(|_| "Invalid last note")?;
+    let middle_note: i32 = next_val()?.parse().map_err(|_| "Invalid middle note")?;
+    let ref_note: i32 = next_val()?.parse().map_err(|_| "Invalid reference note")?;
+    let ref_freq: f32 = next_val()?.parse().map_err(|_| "Invalid reference frequency")?;
+    let formal_octave: i32 = next_val()?.parse().map_err(|_| "Invalid formal octave")?;
 
     let mut mapping = Vec::new();
     if map_size > 0 {
         for _ in 0..map_size {
             if let Ok(l) = next_val() {
                 let val = l.split_whitespace().next().unwrap_or("x");
-                if val.eq_ignore_ascii_case("x") { mapping.push(None); } else { mapping.push(Some(val.parse()?)); }
+                if val.eq_ignore_ascii_case("x") { mapping.push(None); } 
+                else { mapping.push(Some(val.parse().map_err(|_| "Invalid map step")?)); }
             } else { break; }
         }
     }
     Ok(Kbm { map_size, first_note, last_note, middle_note, ref_note, ref_freq, formal_octave, mapping })
+}
+
+pub fn sync_notepad_tuning(state_mutex: Arc<Mutex<MidiState>>, scl_lines: &[String], kbm_lines: &[String]) -> Result<String, String> {
+    let multipliers = parse_scl_content(scl_lines)?;
+    let kbm = parse_kbm_content(kbm_lines).unwrap_or(Kbm { 
+        map_size: 0, first_note: 0, last_note: 127, middle_note: 69, 
+        ref_note: 69, ref_freq: 440.0, formal_octave: (multipliers.len() - 1) as i32, 
+        mapping: vec![] 
+    });
+    apply_custom_tuning(state_mutex, &multipliers, &kbm)?;
+    Ok(format!("Notepad tuned successfully ({} notes).", multipliers.len() - 1))
+}
+
+// Keep original file loaders for CommandInput fallback
+pub fn parse_scl(path: &str) -> Result<Vec<f32>, Box<dyn Error>> {
+    let contents = fs::read_to_string(path)?;
+    let lines: Vec<String> = contents.lines().map(|s| s.to_string()).collect();
+    parse_scl_content(&lines).map_err(|e| e.into())
+}
+
+pub fn parse_kbm(path: &str) -> Result<Kbm, Box<dyn Error>> {
+    let contents = fs::read_to_string(path)?;
+    let lines: Vec<String> = contents.lines().map(|s| s.to_string()).collect();
+    parse_kbm_content(&lines).map_err(|e| e.into())
 }
 
 pub fn update_tuning(state_mutex: Arc<Mutex<MidiState>>, choice: &str) -> bool {

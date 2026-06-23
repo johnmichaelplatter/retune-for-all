@@ -27,7 +27,7 @@ pub enum Focus {
     GridUnequalToggle, GridUnequal(usize), GridOpen(usize),
     
     CommandInput, 
-    Notepad, // <-- Added Notepad focus state
+    Notepad,
 }
 
 pub struct UiState {
@@ -78,7 +78,7 @@ impl Default for UiState {
         
         let mut kbm = TextArea::default();
         kbm.set_block(Block::default().borders(Borders::TOP));
-        kbm.insert_str("! Template for a keyboard mapping\nSize of map:\n12\n...");
+        kbm.insert_str("! Default KBM\n0\n0\n127\n69\n69\n440.0\n12\n");
 
         Self {
             focus: Focus::CommandInput,
@@ -318,7 +318,7 @@ pub fn run_tui(
             btn_row.push(Span::raw("[ ")); btn_row.push(Span::styled("L", Style::default().add_modifier(Modifier::UNDERLINED))); btn_row.push(Span::raw("oad .scl ]  "));
             btn_row.push(Span::raw("[ ")); btn_row.push(Span::styled("O", Style::default().add_modifier(Modifier::UNDERLINED))); btn_row.push(Span::raw("pen .kbm ]  "));
             btn_row.push(Span::raw("[ ")); btn_row.push(Span::styled("C", Style::default().add_modifier(Modifier::UNDERLINED))); btn_row.push(Span::raw("lear .scl ]  "));
-            btn_row.push(Span::raw("[ Cl")); btn_row.push(Span::styled("e", Style::default().add_modifier(Modifier::UNDERLINED))); btn_row.push(Span::raw("ar .kbm ]"));
+            btn_row.push(Span::raw("[ Cl")); btn_row.push(Span::styled("E", Style::default().add_modifier(Modifier::UNDERLINED))); btn_row.push(Span::raw("ar .kbm ]"));
             f.render_widget(Paragraph::new(Line::from(btn_row)), file_splits[1]);
 
             // Notepad (TextArea) Dynamic Highlighting
@@ -356,6 +356,64 @@ pub fn run_tui(
                            !ui_state.is_editing_interval && !ui_state.is_editing_dropdown && 
                            !ui_state.is_editing_pb && !ui_state.is_typing_in_notepad {
                             
+                            // File Buttons (Upper Case Letters)
+                            match c {
+                                'L' => {
+                                    disable_raw_mode()?; execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                    let path = prompt_input("Enter path to .scl file (or Drag & Drop): ");
+                                    execute!(terminal.backend_mut(), EnterAlternateScreen)?; enable_raw_mode()?; terminal.clear()?;
+                                    
+                                    let p = path.trim_matches('"').trim_matches('\'').trim();
+                                    if let Ok(content) = std::fs::read_to_string(p) {
+                                        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+                                        ui_state.scl_textarea = ratatui_textarea::TextArea::new(lines);
+                                        ui_state.active_file_tab = 0; // Auto-switch tab to show loaded file
+                                        
+                                        match crate::tuning::sync_notepad_tuning(state_mutex.clone(), ui_state.scl_textarea.lines(), ui_state.kbm_textarea.lines()) {
+                                            Ok(msg) => ui_state.logs.push(msg), Err(e) => ui_state.logs.push(format!("SCL Parse Error: {}", e))
+                                        }
+                                    } else { ui_state.logs.push(format!("Failed to read file: {}", p)); }
+                                    continue;
+                                }
+                                'O' => {
+                                    disable_raw_mode()?; execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                    let path = prompt_input("Enter path to .kbm file (or Drag & Drop): ");
+                                    execute!(terminal.backend_mut(), EnterAlternateScreen)?; enable_raw_mode()?; terminal.clear()?;
+                                    
+                                    let p = path.trim_matches('"').trim_matches('\'').trim();
+                                    if let Ok(content) = std::fs::read_to_string(p) {
+                                        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+                                        ui_state.kbm_textarea = ratatui_textarea::TextArea::new(lines);
+                                        ui_state.active_file_tab = 1; 
+                                        
+                                        match crate::tuning::sync_notepad_tuning(state_mutex.clone(), ui_state.scl_textarea.lines(), ui_state.kbm_textarea.lines()) {
+                                            Ok(msg) => ui_state.logs.push(msg), Err(e) => ui_state.logs.push(format!("KBM Parse Error: {}", e))
+                                        }
+                                    } else { ui_state.logs.push(format!("Failed to read file: {}", p)); }
+                                    continue;
+                                }
+                                'C' => {
+                                    let lines: Vec<String> = vec!["! 12 EDO".into(), "12".into(), "!".into(), "100.0".into(), "200.0".into(), "300.0".into(), "400.0".into(), "500.0".into(), "600.0".into(), "700.0".into(), "800.0".into(), "900.0".into(), "1000.0".into(), "1100.0".into(), "2/1".into()];
+                                    ui_state.scl_textarea = ratatui_textarea::TextArea::new(lines);
+                                    ui_state.active_file_tab = 0;
+                                    match crate::tuning::sync_notepad_tuning(state_mutex.clone(), ui_state.scl_textarea.lines(), ui_state.kbm_textarea.lines()) {
+                                        Ok(msg) => ui_state.logs.push(format!("Cleared SCL. {}", msg)), Err(e) => ui_state.logs.push(format!("Parse Error: {}", e))
+                                    }
+                                    continue;
+                                }
+                                'E' => {
+                                    let lines: Vec<String> = vec!["! Default KBM".into(), "0".into(), "0".into(), "127".into(), "69".into(), "69".into(), "440.0".into(), "12".into()];
+                                    ui_state.kbm_textarea = ratatui_textarea::TextArea::new(lines);
+                                    ui_state.active_file_tab = 1;
+                                    match crate::tuning::sync_notepad_tuning(state_mutex.clone(), ui_state.scl_textarea.lines(), ui_state.kbm_textarea.lines()) {
+                                        Ok(msg) => ui_state.logs.push(format!("Cleared KBM. {}", msg)), Err(e) => ui_state.logs.push(format!("Parse Error: {}", e))
+                                    }
+                                    continue;
+                                }
+                                _ => {}
+                            }
+
+                            // Global Focus Jump
                             let new_focus = match c {
                                 'i' => Some(Focus::Input),
                                 'o' => Some(Focus::Output),
@@ -372,7 +430,7 @@ pub fn run_tui(
                                 'v' => Some(Focus::GridOctave),
                                 'u' => Some(Focus::GridUnequalToggle),
                                 's' => Some(Focus::GridOpen(0)),
-                                'f' => Some(Focus::Notepad), // Added quick jump
+                                'f' => Some(Focus::Notepad), 
                                 _ => None,
                             };
 
@@ -413,35 +471,21 @@ pub fn run_tui(
                     } else if ui_state.is_typing_in_notepad {
                         match key.code {
                             KeyCode::Esc => { 
-                                // Exit the notepad
                                 ui_state.is_typing_in_notepad = false; 
                                 ui_state.logs.push("Exited Notepad.".to_string());
                             }
                             KeyCode::Tab => {
-                                // Switch focus between SCL and KBM tabs
                                 ui_state.active_file_tab = if ui_state.active_file_tab == 0 { 1 } else { 0 };
                             }
                             KeyCode::Enter => {
-                                // Let the textarea process the newline first
-                                if ui_state.active_file_tab == 0 {
-                                    ui_state.scl_textarea.input(key);
-                                    let scl_content = ui_state.scl_textarea.lines().join("\n");
-                                    // TODO: Call parse_scl() equivalent
-                                    ui_state.logs.push("SCL tuning updated.".to_string());
-                                } else {
-                                    ui_state.kbm_textarea.input(key);
-                                    let kbm_content = ui_state.kbm_textarea.lines().join("\n");
-                                    // TODO: Call parse_kbm() equivalent
-                                    ui_state.logs.push("KBM mapping updated.".to_string());
+                                if ui_state.active_file_tab == 0 { ui_state.scl_textarea.input(key); } else { ui_state.kbm_textarea.input(key); }
+                                match crate::tuning::sync_notepad_tuning(state_mutex.clone(), ui_state.scl_textarea.lines(), ui_state.kbm_textarea.lines()) {
+                                    Ok(msg) => ui_state.logs.push(msg),
+                                    Err(e) => ui_state.logs.push(format!("Notepad Parse Error: {}", e)),
                                 }
                             }
                             _ => {
-                                // Route all other typing natively
-                                if ui_state.active_file_tab == 0 {
-                                    ui_state.scl_textarea.input(key);
-                                } else {
-                                    ui_state.kbm_textarea.input(key);
-                                }
+                                if ui_state.active_file_tab == 0 { ui_state.scl_textarea.input(key); } else { ui_state.kbm_textarea.input(key); }
                             }
                         }
                     } else if ui_state.is_editing_grid {
@@ -503,7 +547,7 @@ pub fn run_tui(
                                     Focus::Input => Focus::Input, Focus::Output => Focus::Input, Focus::Mode => Focus::Output, Focus::PitchBend => Focus::Mode, Focus::Channel(0) => Focus::PitchBend, Focus::Channel(i) => Focus::Channel(i - 1),
                                     Focus::Divisions => Focus::Channel(15), Focus::Interval => Focus::Divisions,
                                     Focus::GridEdo => Focus::Interval, Focus::GridRefMidi => Focus::GridEdo, Focus::GridRefPitch => Focus::GridRefMidi, Focus::GridHoriz => Focus::GridRefPitch, Focus::GridCapo => if ui_state.grid_unequal_toggle { Focus::GridRefPitch } else { Focus::GridHoriz }, Focus::GridOctave => Focus::GridCapo, Focus::GridUnequalToggle => Focus::GridOctave, Focus::GridUnequal(0) => Focus::GridUnequalToggle, Focus::GridUnequal(i) => Focus::GridUnequal(i-1), Focus::GridOpen(0) => if ui_state.grid_unequal_toggle { Focus::GridUnequal(8) } else { Focus::GridUnequalToggle }, Focus::GridOpen(i) => Focus::GridOpen(i-1),
-                                    Focus::Notepad => Focus::GridRefPitch, // Jump back to left side
+                                    Focus::Notepad => Focus::GridRefPitch, 
                                     Focus::CommandInput => Focus::GridOpen(7),
                                 };
                             }
@@ -512,11 +556,11 @@ pub fn run_tui(
                                     Focus::Input => Focus::Output, Focus::Output => Focus::Mode, Focus::Mode => Focus::PitchBend, Focus::PitchBend => Focus::Channel(0), Focus::Channel(15) => Focus::Divisions, Focus::Channel(i) => Focus::Channel(i + 1),
                                     Focus::Divisions => Focus::Interval, Focus::Interval => Focus::GridEdo,
                                     Focus::GridEdo => Focus::GridRefMidi, Focus::GridRefMidi => Focus::GridRefPitch, 
-                                    Focus::GridRefPitch => Focus::Notepad, // Jump to Notepad
+                                    Focus::GridRefPitch => Focus::Notepad, 
                                     Focus::GridHoriz => Focus::GridCapo, Focus::GridCapo => Focus::GridOctave, 
-                                    Focus::GridOctave => Focus::Notepad, // Jump to Notepad
+                                    Focus::GridOctave => Focus::Notepad, 
                                     Focus::GridUnequalToggle => if ui_state.grid_unequal_toggle { Focus::GridUnequal(0) } else { Focus::Notepad }, 
-                                    Focus::GridUnequal(8) => Focus::Notepad, // Jump to Notepad
+                                    Focus::GridUnequal(8) => Focus::Notepad, 
                                     Focus::GridUnequal(i) => Focus::GridUnequal(i+1), Focus::GridOpen(7) => Focus::CommandInput, Focus::GridOpen(i) => Focus::GridOpen(i+1),
                                     Focus::Notepad => Focus::Notepad,
                                     Focus::CommandInput => Focus::CommandInput,
@@ -574,17 +618,7 @@ pub fn run_tui(
                                         let cmd = ui_state.input.trim().to_string(); ui_state.input.clear();
                                         if cmd == "q" { return Ok(UiAction::Quit); }
                                         if cmd == "0" {
-                                            disable_raw_mode()?; execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-                                            let scl_path = prompt_input("Enter path to .scl file: "); let scl_path = scl_path.trim_matches('"').trim_matches('\'');
-                                            match parse_scl(scl_path) {
-                                                Ok(multipliers) => {
-                                                    let kbm_path = prompt_input("Enter path to .kbm file: "); let kbm_path = kbm_path.trim_matches('"').trim_matches('\'');
-                                                    let kbm = if kbm_path.is_empty() { Kbm { map_size: 0, first_note: 0, last_note: 127, middle_note: 69, ref_note: 69, ref_freq: 440.0, formal_octave: (multipliers.len() - 1) as i32, mapping: vec![] } } 
-                                                              else { parse_kbm(kbm_path).unwrap_or(Kbm { map_size: 0, first_note: 0, last_note: 127, middle_note: 69, ref_note: 69, ref_freq: 440.0, formal_octave: 12, mapping: vec![] }) };
-                                                    match apply_custom_tuning(state_mutex.clone(), &multipliers, &kbm) { Ok(_) => ui_state.logs.push(format!("Successfully loaded SCL tuning!")), Err(e) => ui_state.logs.push(format!("SCL Apply Error: {}", e)) }
-                                                }, Err(e) => ui_state.logs.push(format!("SCL Parse Error: {}", e))
-                                            }
-                                            execute!(terminal.backend_mut(), EnterAlternateScreen)?; enable_raw_mode()?; terminal.clear()?;
+                                            ui_state.logs.push("Command '0' deprecated. Use Shift+L to load SCL files directly.".to_string());
                                         } else {
                                             if update_tuning(state_mutex.clone(), &cmd) { ui_state.logs.push(format!("Preset {} loaded.", cmd)); } 
                                             else { ui_state.logs.push(format!("Unknown command: {}", cmd)); }
