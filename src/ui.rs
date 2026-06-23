@@ -211,7 +211,7 @@ pub fn run_tui(
             for i in 0..16 {
                 let mut dot_style = Style::default();
                 if midi_state.output_flash[i] > 0 { dot_style = dot_style.fg(Color::White).add_modifier(Modifier::BOLD); } 
-                else if midi_state.channel_enabled[i] { dot_style = dot_style.fg(Color::Gray); } else { dot_style = dot_style.fg(Color::DarkGray); }
+                else if midi_state.channel_enabled[i] { dot_style = dot_style.fg(Color::LightGray); } else { dot_style = dot_style.fg(Color::DarkGray); }
                 if ui_state.focus == Focus::Channel(i) { dot_style = dot_style.bg(Color::DarkGray); }
                 dots_row.push(Span::styled("• ", dot_style));
             }
@@ -266,7 +266,7 @@ pub fn run_tui(
             // Right Side: Grid Parameters
             let mut g_row1 = vec![];
             g_row1.extend(render_labeled("EDO: ",0)); g_row1.push(fmt_box(ui_state, Focus::GridEdo, &ui_state.grid_edo));
-            g_row1.extend(render_labeled("  Ref MIDI: ", 0)); g_row1.push(fmt_box(ui_state, Focus::GridRefMidi, &ui_state.grid_ref_midi));
+            g_row1.extend(render_labeled("  Ref MIDI: ", 2)); g_row1.push(fmt_box(ui_state, Focus::GridRefMidi, &ui_state.grid_ref_midi));
             g_row1.extend(render_labeled("  Ref Hz: ", 7)); g_row1.push(fmt_box(ui_state, Focus::GridRefPitch, &ui_state.grid_ref_pitch));
             
             let mut g_row2 = vec![];
@@ -287,7 +287,7 @@ pub fn run_tui(
             
             let mut g_row4 = vec![Span::raw("Steps: ")];
             if ui_state.grid_unequal_toggle {
-                for i in 0..9 {
+                for i in 0..8 {
                     g_row4.push(fmt_box(ui_state, Focus::GridUnequal(i), &ui_state.grid_unequal[i]));
                     g_row4.push(Span::raw(" "));
                 }
