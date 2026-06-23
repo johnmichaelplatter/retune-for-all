@@ -51,6 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         focus: Focus::CommandInput,
         is_editing_dropdown: false,
         is_editing_pb: false,
+        clear_pb: false,        
         pb_input: String::new(),
         
         is_editing_divisions: false,
