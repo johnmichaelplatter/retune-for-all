@@ -211,7 +211,7 @@ pub fn run_tui(
             for i in 0..16 {
                 let mut dot_style = Style::default();
                 if midi_state.output_flash[i] > 0 { dot_style = dot_style.fg(Color::White).add_modifier(Modifier::BOLD); } 
-                else if midi_state.channel_enabled[i] { dot_style = dot_style.fg(Color::LightGray); } else { dot_style = dot_style.fg(Color::DarkGray); }
+                else if midi_state.channel_enabled[i] { dot_style = dot_style.fg(Color::Indexed(252)); } else { dot_style = dot_style.fg(Color::Indexed(237)); }
                 if ui_state.focus == Focus::Channel(i) { dot_style = dot_style.bg(Color::DarkGray); }
                 dots_row.push(Span::styled("• ", dot_style));
             }

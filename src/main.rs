@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // --- PRE-CONFIGURE THE NOTEPAD TEXTAREAS ---
     let mut scl_textarea = ratatui_textarea::TextArea::default();
     scl_textarea.set_block(Block::default().borders(Borders::TOP));
-    scl_textarea.insert_str("! 12 EDO\n12\n!\n100.0\n200.0\n300.0\n"); 
+    scl_textarea.insert_str("  12 EDO\n12\n!\n100.0\n200.0\n300.0\n"); 
 
     let mut kbm_textarea = ratatui_textarea::TextArea::default();
     kbm_textarea.set_block(Block::default().borders(Borders::TOP));
