@@ -207,7 +207,7 @@ pub fn run_tui(
             let mut dots_row = vec![Span::raw("MIDI In: ")];
             let in_dot_color = if midi_state.input_flash > 0 { Color::Cyan } else { Color::DarkGray };
             dots_row.push(Span::styled("•", Style::default().fg(in_dot_color))); 
-            dots_row.extend(render_labeled("   Channels Out: ",4));
+            dots_row.extend(render_labeled("   Channels Out: ",3));
             for i in 0..16 {
                 let mut dot_style = Style::default();
                 if midi_state.output_flash[i] > 0 { dot_style = dot_style.fg(Color::White).add_modifier(Modifier::BOLD); } 
@@ -247,7 +247,7 @@ pub fn run_tui(
             // Left Side: 8 Open Strings
             let mut string_lines = vec![];
             for i in 0..8 {
-                let string_idx = 7 - i; 
+                let string_idx = i; 
                 let string_num = string_idx + 1; 
                 let mut line = Vec::new();
 
@@ -307,8 +307,8 @@ pub fn run_tui(
                 .split(file_area);
 
             // Tabs
-            let scl_tab = Line::from(vec![Span::raw(" S"), Span::styled("C", Style::default().add_modifier(Modifier::UNDERLINED)), Span::raw("L ")]);
-            let kbm_tab = Line::from(vec![Span::raw(" K"), Span::styled("B", Style::default().add_modifier(Modifier::UNDERLINED)), Span::raw("M ")]);
+            let scl_tab = Line::from(vec![Span::raw(" SCL ")]);
+            let kbm_tab = Line::from(vec![Span::raw(" KBM")]);
 
             let tabs = Tabs::new(vec![scl_tab, kbm_tab])
                 .select(ui_state.active_file_tab)
@@ -317,7 +317,7 @@ pub fn run_tui(
             f.render_widget(tabs, file_splits[0]);
 
             // Plain text buttons
-            let btn_text = " Load .scl/.kbm (Shift+L)     Clear .scl (Shift+C)     Clear .kbm (Shift+K) ";
+            let btn_text = " Load .scl/.kbm (Shift+L)  Clear .scl (Shift+C)  Clear .kbm (Shift+K) ";
             f.render_widget(Paragraph::new(btn_text), file_splits[1]);
 
             // Notepad (TextArea) Dynamic Highlighting
