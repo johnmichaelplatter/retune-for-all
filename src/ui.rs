@@ -34,6 +34,7 @@ pub struct UiState {
     pub focus: Focus,
     pub is_editing_dropdown: bool,
     pub is_editing_pb: bool,
+    pub clear_pb: bool, // Added for overwriting PB Range
     pub pb_input: String,
 
     pub is_editing_divisions: bool,
@@ -74,7 +75,8 @@ impl Default for UiState {
     fn default() -> Self {
         let mut scl = TextArea::default();
         scl.set_block(Block::default().borders(Borders::TOP));
-        scl.insert_str("! 12 EDO\n12\n!\n100.0\n200.0\n300.0\n"); 
+        // Properly formatted SCL: Description is first non-comment line, Note count is second.
+        scl.insert_str("!\n12 EDO\n12\n!\n100.0\n200.0\n300.0\n400.0\n500.0\n600.0\n700.0\n800.0\n900.0\n1000.0\n1100.0\n2/1\n"); 
         
         let mut kbm = TextArea::default();
         kbm.set_block(Block::default().borders(Borders::TOP));
@@ -84,6 +86,7 @@ impl Default for UiState {
             focus: Focus::CommandInput,
             is_editing_dropdown: false,
             is_editing_pb: false,
+            clear_pb: false,
             pb_input: String::new(),
 
             is_editing_divisions: false,
@@ -213,11 +216,11 @@ pub fn run_tui(
                 dots_row.push(Span::styled("• ", dot_style));
             }
 
-            f.render_widget(Paragraph::new(vec![Line::raw(""), Line::from(top_row), Line::raw(""), Line::from(dots_row)]).block(Block::default().title(" Settings ").borders(Borders::ALL)).wrap(Wrap { trim: true }), main_chunks[0]);
+            f.render_widget(Paragraph::new(vec![Line::raw(""), Line::from(top_row), Line::raw(""), Line::from(dots_row)]).block(Block::default().title(" Settings ").borders(Borders::ALL).border_style(Style::default().fg(Color::Green))).wrap(Wrap { trim: true }), main_chunks[0]);
 
             // --- PRESETS PANEL ---
             let presets_text = "  1     2     3     4     5     6     7     8     9  ";
-            f.render_widget(Paragraph::new(presets_text).block(Block::default().title(" Presets ").borders(Borders::ALL)), main_chunks[1]);
+            f.render_widget(Paragraph::new(presets_text).block(Block::default().title(" Presets ").borders(Borders::ALL).border_style(Style::default().fg(Color::Green))), main_chunks[1]);
 
             // --- EQUAL DIVISION PANEL ---
             let mut ed_row = vec![];
@@ -232,10 +235,10 @@ pub fn run_tui(
             let int_style = if ui_state.focus == Focus::Interval { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default() };
             ed_row.push(Span::styled(int_str, int_style));
             
-            f.render_widget(Paragraph::new(Line::from(ed_row)).block(Block::default().title(" Equal Division ").borders(Borders::ALL)), left_chunks[0]);
+            f.render_widget(Paragraph::new(Line::from(ed_row)).block(Block::default().title(" Equal Division ").borders(Borders::ALL).border_style(Style::default().fg(Color::Green))), left_chunks[0]);
 
             // --- GUITAR GRID PANEL ---
-            let grid_block = Block::default().title(" Guitar Grid ").borders(Borders::ALL);
+            let grid_block = Block::default().title(" Guitar Grid ").borders(Borders::ALL).border_style(Style::default().fg(Color::Green));
             let inner_grid_area = grid_block.inner(left_chunks[1]);
             f.render_widget(grid_block, left_chunks[1]);
 
@@ -293,7 +296,7 @@ pub fn run_tui(
             f.render_widget(Paragraph::new(vec![Line::from(g_row1), Line::from(g_row2), Line::raw(""), Line::from(g_row3), Line::from(g_row4)]), grid_splits[1]);
 
             // --- FILE PANEL ---
-            let file_border_color = if ui_state.focus == Focus::Notepad && !ui_state.is_typing_in_notepad { Color::Yellow } else { Color::White };
+            let file_border_color = if ui_state.focus == Focus::Notepad { Color::Yellow } else { Color::Green };
             let file_block = Block::default().title(" File ").borders(Borders::ALL).border_style(Style::default().fg(file_border_color));
             let file_area = file_block.inner(middle_chunks[1]);
             f.render_widget(file_block, middle_chunks[1]);
@@ -313,16 +316,12 @@ pub fn run_tui(
                 .divider("|");
             f.render_widget(tabs, file_splits[0]);
 
-            // Buttons
-            let mut btn_row = vec![];
-            btn_row.push(Span::raw("[ ")); btn_row.push(Span::styled("L", Style::default().add_modifier(Modifier::UNDERLINED))); btn_row.push(Span::raw("oad .scl ]  "));
-            btn_row.push(Span::raw("[ ")); btn_row.push(Span::styled("O", Style::default().add_modifier(Modifier::UNDERLINED))); btn_row.push(Span::raw("pen .kbm ]  "));
-            btn_row.push(Span::raw("[ ")); btn_row.push(Span::styled("C", Style::default().add_modifier(Modifier::UNDERLINED))); btn_row.push(Span::raw("lear .scl ]  "));
-            btn_row.push(Span::raw("[ Cl")); btn_row.push(Span::styled("E", Style::default().add_modifier(Modifier::UNDERLINED))); btn_row.push(Span::raw("ar .kbm ]"));
-            f.render_widget(Paragraph::new(Line::from(btn_row)), file_splits[1]);
+            // Plain text buttons
+            let btn_text = " Load .scl/.kbm (Shift+L)     Clear .scl (Shift+C)     Clear .kbm (Shift+K) ";
+            f.render_widget(Paragraph::new(btn_text), file_splits[1]);
 
             // Notepad (TextArea) Dynamic Highlighting
-            let active_color = if ui_state.is_typing_in_notepad { Color::Green } else if ui_state.focus == Focus::Notepad { Color::Yellow } else { Color::DarkGray };
+            let active_color = if ui_state.focus == Focus::Notepad { Color::Yellow } else { Color::Green };
             ui_state.scl_textarea.set_block(Block::default().borders(Borders::TOP).border_style(Style::default().fg(if ui_state.active_file_tab == 0 { active_color } else { Color::DarkGray })));
             ui_state.kbm_textarea.set_block(Block::default().borders(Borders::TOP).border_style(Style::default().fg(if ui_state.active_file_tab == 1 { active_color } else { Color::DarkGray })));
 
@@ -333,7 +332,7 @@ pub fn run_tui(
             }
 
             // --- LOGS PANEL ---
-            let log_block = Block::default().title(" Logs ").borders(Borders::ALL);
+            let log_block = Block::default().title(" Logs ").borders(Borders::ALL).border_style(Style::default().fg(Color::Green));
             let log_area = log_block.inner(main_chunks[3]);
             
             let visible_lines = log_area.height as usize;
@@ -344,7 +343,7 @@ pub fn run_tui(
 
             // --- COMMAND INPUT ---
             let input_style = if ui_state.focus == Focus::CommandInput { Style::default().fg(Color::Yellow) } else { Style::default() };
-            f.render_widget(Paragraph::new(format!("> {}", ui_state.input)).style(input_style).block(Block::default().title(" Command Input (Presets 1-9, '0', 'q') ").borders(Borders::ALL)), main_chunks[4]);
+            f.render_widget(Paragraph::new(format!("> {}", ui_state.input)).style(input_style).block(Block::default().title(" Command Input (Presets 1-9, '0', 'q') ").borders(Borders::ALL).border_style(Style::default().fg(Color::Green))), main_chunks[4]);
         })?;
 
         if event::poll(Duration::from_millis(30))? {
@@ -360,40 +359,43 @@ pub fn run_tui(
                             match c {
                                 'L' => {
                                     disable_raw_mode()?; execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-                                    let path = prompt_input("Enter path to .scl file (or Drag & Drop): ");
+                                    let scl_path = prompt_input("Enter path to .scl file (or Drag & Drop): ");
+                                    let kbm_path = prompt_input("Enter path to .kbm file (or Drag & Drop, press Enter for default): ");
                                     execute!(terminal.backend_mut(), EnterAlternateScreen)?; enable_raw_mode()?; terminal.clear()?;
                                     
-                                    let p = path.trim_matches('"').trim_matches('\'').trim();
-                                    if let Ok(content) = std::fs::read_to_string(p) {
+                                    let p_scl = scl_path.trim_matches('"').trim_matches('\'').trim();
+                                    if let Ok(content) = std::fs::read_to_string(p_scl) {
                                         let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
                                         ui_state.scl_textarea = ratatui_textarea::TextArea::new(lines);
-                                        ui_state.active_file_tab = 0; // Auto-switch tab to show loaded file
-                                        
-                                        match crate::tuning::sync_notepad_tuning(state_mutex.clone(), ui_state.scl_textarea.lines(), ui_state.kbm_textarea.lines()) {
-                                            Ok(msg) => ui_state.logs.push(msg), Err(e) => ui_state.logs.push(format!("SCL Parse Error: {}", e))
-                                        }
-                                    } else { ui_state.logs.push(format!("Failed to read file: {}", p)); }
-                                    continue;
-                                }
-                                'O' => {
-                                    disable_raw_mode()?; execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-                                    let path = prompt_input("Enter path to .kbm file (or Drag & Drop): ");
-                                    execute!(terminal.backend_mut(), EnterAlternateScreen)?; enable_raw_mode()?; terminal.clear()?;
-                                    
-                                    let p = path.trim_matches('"').trim_matches('\'').trim();
-                                    if let Ok(content) = std::fs::read_to_string(p) {
+                                        ui_state.active_file_tab = 0; 
+                                    } else if !p_scl.is_empty() {
+                                        ui_state.logs.push(format!("Failed to read SCL file: {}", p_scl));
+                                    }
+
+                                    let p_kbm = kbm_path.trim_matches('"').trim_matches('\'').trim();
+                                    if let Ok(content) = std::fs::read_to_string(p_kbm) {
                                         let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
                                         ui_state.kbm_textarea = ratatui_textarea::TextArea::new(lines);
-                                        ui_state.active_file_tab = 1; 
-                                        
-                                        match crate::tuning::sync_notepad_tuning(state_mutex.clone(), ui_state.scl_textarea.lines(), ui_state.kbm_textarea.lines()) {
-                                            Ok(msg) => ui_state.logs.push(msg), Err(e) => ui_state.logs.push(format!("KBM Parse Error: {}", e))
-                                        }
-                                    } else { ui_state.logs.push(format!("Failed to read file: {}", p)); }
+                                    } else if p_kbm.is_empty() {
+                                        // Empty prompt gives the default KBM mapping
+                                        let lines: Vec<String> = vec!["! Default KBM".into(), "0".into(), "0".into(), "127".into(), "69".into(), "69".into(), "440.0".into(), "12".into()];
+                                        ui_state.kbm_textarea = ratatui_textarea::TextArea::new(lines);
+                                    } else {
+                                        ui_state.logs.push(format!("Failed to read KBM file: {}", p_kbm));
+                                    }
+
+                                    match crate::tuning::sync_notepad_tuning(state_mutex.clone(), ui_state.scl_textarea.lines(), ui_state.kbm_textarea.lines()) {
+                                        Ok(msg) => ui_state.logs.push(msg), Err(e) => ui_state.logs.push(format!("Notepad Parse Error: {}", e))
+                                    }
                                     continue;
                                 }
                                 'C' => {
-                                    let lines: Vec<String> = vec!["! 12 EDO".into(), "12".into(), "!".into(), "100.0".into(), "200.0".into(), "300.0".into(), "400.0".into(), "500.0".into(), "600.0".into(), "700.0".into(), "800.0".into(), "900.0".into(), "1000.0".into(), "1100.0".into(), "2/1".into()];
+                                    let lines: Vec<String> = vec![
+                                        "!".into(), "12 EDO".into(), "12".into(), "!".into(), 
+                                        "100.0".into(), "200.0".into(), "300.0".into(), "400.0".into(), 
+                                        "500.0".into(), "600.0".into(), "700.0".into(), "800.0".into(), 
+                                        "900.0".into(), "1000.0".into(), "1100.0".into(), "2/1".into()
+                                    ];
                                     ui_state.scl_textarea = ratatui_textarea::TextArea::new(lines);
                                     ui_state.active_file_tab = 0;
                                     match crate::tuning::sync_notepad_tuning(state_mutex.clone(), ui_state.scl_textarea.lines(), ui_state.kbm_textarea.lines()) {
@@ -401,7 +403,7 @@ pub fn run_tui(
                                     }
                                     continue;
                                 }
-                                'E' => {
+                                'K' => {
                                     let lines: Vec<String> = vec!["! Default KBM".into(), "0".into(), "0".into(), "127".into(), "69".into(), "69".into(), "440.0".into(), "12".into()];
                                     ui_state.kbm_textarea = ratatui_textarea::TextArea::new(lines);
                                     ui_state.active_file_tab = 1;
@@ -442,8 +444,17 @@ pub fn run_tui(
                     }                    
                     if ui_state.is_editing_pb {
                         match key.code {
-                            KeyCode::Char(c) if c.is_ascii_digit() => { if ui_state.pb_input.len() < 3 { ui_state.pb_input.push(c); } }
-                            KeyCode::Backspace => { ui_state.pb_input.pop(); }
+                            KeyCode::Char(c) if c.is_ascii_digit() => { 
+                                if ui_state.clear_pb {
+                                    ui_state.pb_input.clear();
+                                    ui_state.clear_pb = false;
+                                }
+                                if ui_state.pb_input.len() < 3 { ui_state.pb_input.push(c); } 
+                            }
+                            KeyCode::Backspace => { 
+                                ui_state.clear_pb = false;
+                                ui_state.pb_input.pop(); 
+                            }
                             KeyCode::Enter => {
                                 if let Ok(val) = ui_state.pb_input.parse::<u8>() {
                                     state_mutex.lock().unwrap().pitch_bend_range = val.clamp(1, 96); 
@@ -587,7 +598,11 @@ pub fn run_tui(
                                 match ui_state.focus {
                                     Focus::Input => { ui_state.is_editing_dropdown = true; ui_state.dropdown_index = ui_state.selected_in; }
                                     Focus::Output => { ui_state.is_editing_dropdown = true; ui_state.dropdown_index = ui_state.selected_out; }
-                                    Focus::PitchBend => { ui_state.pb_input = state_mutex.lock().unwrap().pitch_bend_range.to_string(); ui_state.is_editing_pb = true; }
+                                    Focus::PitchBend => { 
+                                        ui_state.pb_input = state_mutex.lock().unwrap().pitch_bend_range.to_string(); 
+                                        ui_state.is_editing_pb = true; 
+                                        ui_state.clear_pb = true; // Triggers overwrite on first keystroke
+                                    }
                                     Focus::Divisions => { ui_state.is_editing_divisions = true; ui_state.clear_divisions = true; }
                                     Focus::Interval => { ui_state.is_editing_interval = true; ui_state.clear_interval = true; }
                                     Focus::GridEdo | Focus::GridRefMidi | Focus::GridRefPitch | Focus::GridHoriz | Focus::GridCapo | Focus::GridOctave | Focus::GridOpen(_) | Focus::GridUnequal(_) => {
