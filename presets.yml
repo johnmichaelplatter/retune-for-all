@@ -12,7 +12,7 @@ preset1:
   - 6
   - 7
   - 8
-  active: equal_division
+  active: guitar_grid
   equal_division:
     divisions: '12'
     interval_to_divide: 2/1
@@ -23,7 +23,7 @@ preset1:
     horiz_step: '2'
     capo: '0'
     octave: '0'
-    unequal_frets_on: false
+    unequal_frets_on: true
     unequal_frets:
     - '2'
     - '2'
@@ -32,7 +32,7 @@ preset1:
     - '2'
     - '2'
     - '2'
-    - '2'
+    - '4'
     - '2'
     open_strings:
     - '13'

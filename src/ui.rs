@@ -132,7 +132,7 @@ impl Default for UiState {
     }
 }
 
-pub enum UiAction { Quit, ChangeInput(usize), ChangeOutput(usize) }
+pub enum UiAction { Quit, ChangeInput(usize), ChangeOutput(usize), ChangeBoth(usize, usize) }
 
 pub fn render_labeled(text: &str, hotkey_idx: usize) -> Vec<Span<'_>> {
     let (first, rest) = text.split_at(hotkey_idx);
@@ -460,8 +460,21 @@ pub fn run_tui(
                                         ui_state.scl_textarea = TextArea::new(preset.file.scl.lines().map(|s| s.to_string()).collect());
                                         ui_state.kbm_textarea = TextArea::new(preset.file.kbm.lines().map(|s| s.to_string()).collect());
                                         
-                                        if let Some(idx) = ui_state.in_ports.iter().position(|p| p.contains(&preset.input_device)) { ui_state.selected_in = idx; }
-                                        if let Some(idx) = ui_state.out_ports.iter().position(|p| p.contains(&preset.output_device)) { ui_state.selected_out = idx; }
+                                        let mut in_changed = false;
+                                        let mut out_changed = false;
+
+                                        if let Some(idx) = ui_state.in_ports.iter().position(|p| p.contains(&preset.input_device)) { 
+                                            if ui_state.selected_in != idx {
+                                                ui_state.selected_in = idx; 
+                                                in_changed = true;
+                                            }
+                                        }
+                                        if let Some(idx) = ui_state.out_ports.iter().position(|p| p.contains(&preset.output_device)) { 
+                                            if ui_state.selected_out != idx {
+                                                ui_state.selected_out = idx; 
+                                                out_changed = true;
+                                            }
+                                        }
 
                                         let mut s = state_mutex.lock().unwrap();
                                         s.pitch_bend_range = preset.pb_range;
@@ -480,6 +493,12 @@ pub fn run_tui(
                                             _ => {}
                                         }
                                         ui_state.logs.push(format!("Loaded {}", preset_key));
+                                        ui_state.pending_action = None; // Clear the pending state before returning
+
+                                        // Tell main.rs to do the heavy lifting for the hardware connections
+                                        if in_changed || out_changed {
+                                            return Ok(UiAction::ChangeBoth(ui_state.selected_in, ui_state.selected_out));
+                                        }
                                     } else { ui_state.logs.push(format!("{} not found.", preset_key)); }
                                     
                                 } else if action == 'S' {

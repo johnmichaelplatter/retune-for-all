@@ -78,8 +78,20 @@ let mut ui_state = UiState::default();
 
         match action {
             UiAction::Quit => break,
-            UiAction::ChangeInput(idx) => { ui_state.selected_in = idx; active_in_conn = None; }
-            UiAction::ChangeOutput(idx) => { ui_state.selected_out = idx; state.lock().unwrap().out_conn = None; }
+            UiAction::ChangeInput(idx) => { 
+                ui_state.selected_in = idx; 
+                active_in_conn = None; 
+            }
+            UiAction::ChangeOutput(idx) => { 
+                ui_state.selected_out = idx; 
+                state.lock().unwrap().out_conn = None; 
+            }
+            UiAction::ChangeBoth(in_idx, out_idx) => {
+                ui_state.selected_in = in_idx;
+                ui_state.selected_out = out_idx;
+                active_in_conn = None;
+                state.lock().unwrap().out_conn = None;
+            }
         }
     }
 
