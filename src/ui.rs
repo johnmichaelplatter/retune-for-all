@@ -144,6 +144,92 @@ pub fn render_labeled(text: &str, hotkey_idx: usize) -> Vec<Span> {
     ]
 }
 
+fn move_focus(current: Focus, direction: &str, ui_state: &UiState) -> Focus {
+    match direction {
+        "Right" => match current {
+            Focus::Input => Focus::Output,
+            Focus::Output => Focus::Mode,
+            Focus::Mode => Focus::PitchBend,
+            Focus::PitchBend => Focus::Channel(0),
+            Focus::Channel(i) if i < 15 => Focus::Channel(i + 1),
+            
+            // Moving from Left column to Right column
+            Focus::GridUnequal(8) | Focus::GridOctave | Focus::GridRefPitch | Focus::GridUnequalToggle | Focus::Interval => Focus::Notepad,
+            
+            Focus::Divisions => Focus::Interval,
+            Focus::Interval => Focus::GridEdo,
+            Focus::GridEdo => Focus::GridRefMidi,
+            Focus::GridRefMidi => Focus::GridRefPitch,
+            Focus::GridHoriz => Focus::GridCapo,
+            Focus::GridCapo => Focus::GridOctave,
+            Focus::GridOctave => Focus::GridUnequalToggle,
+            Focus::GridUnequalToggle => Focus::GridUnequal(0),
+            Focus::GridUnequal(i) if i < 8 => Focus::GridUnequal(i + 1),
+            Focus::GridOpen(0) => Focus::GridEdo,
+            Focus::GridOpen(1) => if ui_state.grid_unequal_toggle {Focus::GridCapo} else {Focus::GridHoriz},
+            Focus::GridOpen(3) => Focus::GridUnequalToggle,
+            Focus::GridOpen(4) if ui_state.grid_unequal_toggle => Focus::GridEdo,
+            Focus::GridOpen(i) if i > 3 => Focus::GridUnequalToggle,
+            _ => current,
+        },
+        "Left" => match current {
+            Focus::Output => Focus::Input,
+            Focus::Mode => Focus::Output,
+            Focus::PitchBend => Focus::Mode,
+            Focus::Channel(0) => Focus::PitchBend,
+            Focus::Channel(i) if i > 0 => Focus::Channel(i - 1),
+            Focus::Notepad => Focus::Divisions, 
+            Focus::Interval => Focus::Divisions,
+            Focus::GridEdo => Focus::GridOpen(0),
+            Focus::GridRefMidi => Focus::GridEdo,
+            Focus::GridRefPitch => Focus::GridRefMidi,
+            Focus::GridHoriz => Focus::GridOpen(1),
+            Focus::GridCapo => if ui_state.grid_unequal_toggle {Focus::GridOpen(1)} else {Focus::GridHoriz},
+            Focus::GridOctave => Focus::GridCapo,
+            Focus::GridUnequal(0) => Focus::GridUnequalToggle,
+            Focus::GridUnequal(i) if i > 0 => Focus::GridUnequal(i - 1),
+            Focus::GridUnequalToggle => Focus::GridOpen(3),
+            _ => current,
+        },
+        "Up" => match current {
+            Focus::Divisions | Focus::Interval => Focus::Channel(0),
+            Focus::GridEdo => Focus::Divisions,
+            Focus::GridRefMidi => Focus::Interval,
+            Focus::GridRefPitch => Focus::Interval,
+            Focus::GridCapo => if ui_state.grid_unequal_toggle {Focus::GridOpen(1)} else {Focus::GridRefMidi},
+            Focus::GridOctave => Focus::GridRefPitch,
+            Focus::Channel(_) => Focus::Input,
+            Focus::CommandInput => Focus::GridOpen(7),
+            Focus::GridOpen(i) if i > 0 => Focus::GridOpen(i - 1),
+            Focus::GridOpen(0) => Focus::Divisions,
+            Focus::GridUnequal(_) => Focus::GridUnequalToggle,
+            Focus::GridUnequalToggle => if ui_state.grid_unequal_toggle {Focus::GridEdo} else {Focus::GridHoriz},
+            Focus::Notepad => Focus::Channel(0), 
+
+            // ... add other Up logic ...
+            _ => current,
+        },
+        "Down" => match current {
+            Focus::Input | Focus::Output | Focus::Mode | Focus::PitchBend | Focus::Channel(_) => Focus::Divisions,
+            Focus::Notepad => Focus::CommandInput,
+            Focus::GridEdo => if ui_state.grid_unequal_toggle {Focus::GridUnequalToggle} else {Focus::GridHoriz},
+            Focus::GridOpen(i) if i < 7 => Focus::GridOpen(i + 1),
+            Focus::GridOpen(7) => Focus::CommandInput,
+            Focus::GridHoriz => Focus::GridUnequalToggle,
+            Focus::GridCapo => Focus::GridUnequalToggle,
+            Focus::GridOctave => Focus::GridUnequalToggle,
+            Focus::Divisions => Focus::GridOpen(0),
+            Focus::Interval => Focus::GridRefMidi,
+            Focus::GridRefMidi => Focus::GridCapo,
+            Focus::GridRefPitch => Focus::GridOctave,
+            Focus::GridUnequalToggle => if ui_state.grid_unequal_toggle {Focus::GridUnequal(0)} else {Focus::CommandInput},
+            Focus::GridUnequal(i) => Focus::CommandInput,
+            _ => current,
+        },
+        _ => current,
+    }
+}
+
 pub fn run_tui(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     ui_state: &mut UiState,
@@ -625,10 +711,10 @@ pub fn run_tui(
                     } else {
                         // Global Navigation map
                         match key.code {
-                            KeyCode::Left => { ui_state.focus = match ui_state.focus { Focus::Input => Focus::Input, Focus::Output => Focus::Input, Focus::Mode => Focus::Output, Focus::PitchBend => Focus::Mode, Focus::Channel(0) => Focus::PitchBend, Focus::Channel(i) => Focus::Channel(i - 1), Focus::Divisions => Focus::Channel(15), Focus::Interval => Focus::Divisions, Focus::GridEdo => Focus::Interval, Focus::GridRefMidi => Focus::GridEdo, Focus::GridRefPitch => Focus::GridRefMidi, Focus::GridHoriz => Focus::GridRefPitch, Focus::GridCapo => if ui_state.grid_unequal_toggle { Focus::GridRefPitch } else { Focus::GridHoriz }, Focus::GridOctave => Focus::GridCapo, Focus::GridUnequalToggle => Focus::GridOctave, Focus::GridUnequal(0) => Focus::GridUnequalToggle, Focus::GridUnequal(i) => Focus::GridUnequal(i-1), Focus::GridOpen(0) => if ui_state.grid_unequal_toggle { Focus::GridUnequal(8) } else { Focus::GridUnequalToggle }, Focus::GridOpen(i) => Focus::GridOpen(i-1), Focus::Notepad => Focus::GridRefPitch, Focus::CommandInput => Focus::GridOpen(7) }; }
-                            KeyCode::Right => { ui_state.focus = match ui_state.focus { Focus::Input => Focus::Output, Focus::Output => Focus::Mode, Focus::Mode => Focus::PitchBend, Focus::PitchBend => Focus::Channel(0), Focus::Channel(15) => Focus::Divisions, Focus::Channel(i) => Focus::Channel(i + 1), Focus::Divisions => Focus::Interval, Focus::Interval => Focus::GridEdo, Focus::GridEdo => Focus::GridRefMidi, Focus::GridRefMidi => Focus::GridRefPitch, Focus::GridRefPitch => Focus::Notepad, Focus::GridHoriz => Focus::GridCapo, Focus::GridCapo => Focus::GridOctave, Focus::GridOctave => Focus::Notepad, Focus::GridUnequalToggle => if ui_state.grid_unequal_toggle { Focus::GridUnequal(0) } else { Focus::Notepad }, Focus::GridUnequal(8) => Focus::Notepad, Focus::GridUnequal(i) => Focus::GridUnequal(i+1), Focus::GridOpen(7) => Focus::CommandInput, Focus::GridOpen(i) => Focus::GridOpen(i+1), Focus::Notepad => Focus::Notepad, Focus::CommandInput => Focus::CommandInput }; }
-                            KeyCode::Up => { ui_state.focus = match ui_state.focus { Focus::CommandInput => Focus::GridOpen(7), Focus::GridOpen(_) | Focus::GridEdo | Focus::GridRefMidi | Focus::GridRefPitch | Focus::GridHoriz | Focus::GridCapo | Focus::GridOctave | Focus::GridUnequalToggle | Focus::GridUnequal(_) => Focus::Divisions, Focus::Divisions | Focus::Interval => Focus::Channel(0), _ => ui_state.focus }; }
-                            KeyCode::Down => { ui_state.focus = match ui_state.focus { Focus::Input | Focus::Output | Focus::Mode | Focus::PitchBend | Focus::Channel(_) => Focus::Divisions, Focus::Divisions | Focus::Interval => Focus::GridEdo, Focus::GridEdo | Focus::GridRefMidi | Focus::GridRefPitch | Focus::GridHoriz | Focus::GridCapo | Focus::GridOctave | Focus::GridUnequalToggle | Focus::GridUnequal(_) => Focus::GridOpen(0), Focus::GridOpen(_) => Focus::CommandInput, _ => ui_state.focus }; }
+                            KeyCode::Down => ui_state.focus = move_focus(ui_state.focus, "Down", ui_state),
+                            KeyCode::Up   => ui_state.focus = move_focus(ui_state.focus, "Up", ui_state),
+                            KeyCode::Left => ui_state.focus = move_focus(ui_state.focus, "Left", ui_state),
+                            KeyCode::Right=> ui_state.focus = move_focus(ui_state.focus, "Right", ui_state),
                             KeyCode::Enter => {
                                 match ui_state.focus {
                                     Focus::Input => { ui_state.is_editing_dropdown = true; ui_state.dropdown_index = ui_state.selected_in; }
