@@ -16,25 +16,25 @@ use ratatui::{
 use ratatui_textarea::TextArea;
 
 use crate::midi::{MidiState, send_mpe_configuration};
-use crate::tuning::{prompt_input, apply_grid_tuning, update_tuning, parse_scl, parse_kbm, apply_custom_tuning, apply_equal_division, Kbm};
+use crate::tuning::{
+    prompt_input, apply_grid_tuning, update_tuning, parse_scl, parse_kbm, 
+    apply_custom_tuning, apply_equal_division, Kbm, Preset, PresetsConfig
+};
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum Focus {
     Input, Output, Mode, PitchBend, Channel(usize),
     Divisions, Interval,
-    
     GridEdo, GridRefMidi, GridRefPitch, GridHoriz, GridCapo, GridOctave,
     GridUnequalToggle, GridUnequal(usize), GridOpen(usize),
-    
-    CommandInput, 
-    Notepad,
+    CommandInput, Notepad,
 }
 
 pub struct UiState {
     pub focus: Focus,
     pub is_editing_dropdown: bool,
     pub is_editing_pb: bool,
-    pub clear_pb: bool, // Added for overwriting PB Range
+    pub clear_pb: bool,
     pub pb_input: String,
 
     pub is_editing_divisions: bool,
@@ -69,13 +69,17 @@ pub struct UiState {
     pub is_typing_in_notepad: bool,
     pub scl_textarea: ratatui_textarea::TextArea<'static>,
     pub kbm_textarea: ratatui_textarea::TextArea<'static>,
+
+    // --- Preset Additions ---
+    pub presets: PresetsConfig,
+    pub pending_action: Option<char>, // 'P' for load, 'S' for save
+    pub active_tuning_mode: String,
 }
 
 impl Default for UiState {
     fn default() -> Self {
         let mut scl = TextArea::default();
         scl.set_block(Block::default().borders(Borders::TOP));
-        // Properly formatted SCL: Description is first non-comment line, Note count is second.
         scl.insert_str("!\n12 EDO\n12\n!\n100.0\n200.0\n300.0\n400.0\n500.0\n600.0\n700.0\n800.0\n900.0\n1000.0\n1100.0\n2/1\n"); 
         
         let mut kbm = TextArea::default();
@@ -120,6 +124,10 @@ impl Default for UiState {
             is_typing_in_notepad: false,
             scl_textarea: scl,
             kbm_textarea: kbm,
+
+            presets: crate::tuning::load_presets_from_file(),
+            pending_action: None,
+            active_tuning_mode: "equal_division".to_string(),
         }
     }
 }
@@ -219,8 +227,9 @@ pub fn run_tui(
             f.render_widget(Paragraph::new(vec![Line::raw(""), Line::from(top_row), Line::raw(""), Line::from(dots_row)]).block(Block::default().title(" Settings ").borders(Borders::ALL).border_style(Style::default().fg(Color::Green))).wrap(Wrap { trim: true }), main_chunks[0]);
 
             // --- PRESETS PANEL ---
-            let presets_text = "  1     2     3     4     5     6     7     8     9  ";
-            f.render_widget(Paragraph::new(presets_text).block(Block::default().title(" Presets ").borders(Borders::ALL).border_style(Style::default().fg(Color::Green))), main_chunks[1]);
+            let presets_text = "  1   2   3   4   5   6   7   8   9   |  Shift+P, Num to Load  |  Shift+S, Num to Save";
+            let p_color = if ui_state.pending_action.is_some() { Color::Yellow } else { Color::Green };
+            f.render_widget(Paragraph::new(presets_text).block(Block::default().title(" Presets ").borders(Borders::ALL).border_style(Style::default().fg(p_color))), main_chunks[1]);
 
             // --- EQUAL DIVISION PANEL ---
             let mut ed_row = vec![];
@@ -251,11 +260,7 @@ pub fn run_tui(
                 let string_num = string_idx + 1; 
                 let mut line = Vec::new();
 
-                if i == 0 {
-                    line.push(Span::styled("S", Style::default().add_modifier(Modifier::UNDERLINED)));
-                } else {
-                    line.push(Span::raw("S"));
-                }
+                if i == 0 { line.push(Span::styled("S", Style::default().add_modifier(Modifier::UNDERLINED))); } else { line.push(Span::raw("S")); }
 
                 line.push(Span::raw(format!("{}: ", string_num)));
                 line.push(fmt_box(ui_state, Focus::GridOpen(string_idx), &ui_state.grid_open[string_idx]));
@@ -296,7 +301,7 @@ pub fn run_tui(
             f.render_widget(Paragraph::new(vec![Line::from(g_row1), Line::from(g_row2), Line::raw(""), Line::from(g_row3), Line::from(g_row4)]), grid_splits[1]);
 
             // --- FILE PANEL ---
-            let file_border_color = if ui_state.focus == Focus::Notepad { Color::Yellow } else { Color::Green };
+            let file_border_color = if ui_state.focus == Focus::Notepad && !ui_state.is_typing_in_notepad { Color::Yellow } else { Color::Green };
             let file_block = Block::default().title(" File ").borders(Borders::ALL).border_style(Style::default().fg(file_border_color));
             let file_area = file_block.inner(middle_chunks[1]);
             f.render_widget(file_block, middle_chunks[1]);
@@ -325,11 +330,8 @@ pub fn run_tui(
             ui_state.scl_textarea.set_block(Block::default().borders(Borders::TOP).border_style(Style::default().fg(if ui_state.active_file_tab == 0 { active_color } else { Color::DarkGray })));
             ui_state.kbm_textarea.set_block(Block::default().borders(Borders::TOP).border_style(Style::default().fg(if ui_state.active_file_tab == 1 { active_color } else { Color::DarkGray })));
 
-            if ui_state.active_file_tab == 0 {
-                f.render_widget(&ui_state.scl_textarea, file_splits[2]);
-            } else {
-                f.render_widget(&ui_state.kbm_textarea, file_splits[2]);
-            }
+            if ui_state.active_file_tab == 0 { f.render_widget(&ui_state.scl_textarea, file_splits[2]); } 
+            else { f.render_widget(&ui_state.kbm_textarea, file_splits[2]); }
 
             // --- LOGS PANEL ---
             let log_block = Block::default().title(" Logs ").borders(Borders::ALL).border_style(Style::default().fg(Color::Green));
@@ -343,17 +345,93 @@ pub fn run_tui(
 
             // --- COMMAND INPUT ---
             let input_style = if ui_state.focus == Focus::CommandInput { Style::default().fg(Color::Yellow) } else { Style::default() };
-            f.render_widget(Paragraph::new(format!("> {}", ui_state.input)).style(input_style).block(Block::default().title(" Command Input (Presets 1-9, '0', 'q') ").borders(Borders::ALL).border_style(Style::default().fg(Color::Green))), main_chunks[4]);
+            f.render_widget(Paragraph::new(format!("> {}", ui_state.input)).style(input_style).block(Block::default().title(" Command Input ").borders(Borders::ALL).border_style(Style::default().fg(Color::Green))), main_chunks[4]);
         })?;
 
         if event::poll(Duration::from_millis(30))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     if let KeyCode::Char(c) = key.code {
-                        // Protect against hotkey jumps when typing inside the notepad
-                        if !ui_state.is_editing_grid && !ui_state.is_editing_divisions && 
-                           !ui_state.is_editing_interval && !ui_state.is_editing_dropdown && 
-                           !ui_state.is_editing_pb && !ui_state.is_typing_in_notepad {
+                        // Handle Pending Load/Save action
+                        if let Some(action) = ui_state.pending_action {
+                            if c.is_ascii_digit() && c != '0' {
+                                let preset_key = format!("preset{}", c);
+                                
+                                if action == 'P' {
+                                    if let Some(preset) = ui_state.presets.get(&preset_key) {
+                                        ui_state.pb_input = preset.pb_range.to_string();
+                                        ui_state.divisions_input = preset.equal_division.divisions.clone();
+                                        ui_state.interval_input = preset.equal_division.interval_to_divide.clone();
+                                        
+                                        ui_state.grid_edo = preset.guitar_grid.edo.clone();
+                                        ui_state.grid_ref_midi = preset.guitar_grid.ref_midi.clone();
+                                        ui_state.grid_ref_pitch = preset.guitar_grid.ref_hz.clone();
+                                        ui_state.grid_horiz = preset.guitar_grid.horiz_step.clone();
+                                        ui_state.grid_capo = preset.guitar_grid.capo.clone();
+                                        ui_state.grid_octave = preset.guitar_grid.octave.clone();
+                                        ui_state.grid_unequal_toggle = preset.guitar_grid.unequal_frets_on;
+                                        
+                                        for (i, val) in preset.guitar_grid.unequal_frets.iter().enumerate().take(9) { ui_state.grid_unequal[i] = val.clone(); }
+                                        for (i, val) in preset.guitar_grid.open_strings.iter().enumerate().take(8) { ui_state.grid_open[i] = val.clone(); }
+                                        
+                                        ui_state.scl_textarea = TextArea::new(preset.file.scl.lines().map(|s| s.to_string()).collect());
+                                        ui_state.kbm_textarea = TextArea::new(preset.file.kbm.lines().map(|s| s.to_string()).collect());
+                                        
+                                        if let Some(idx) = ui_state.in_ports.iter().position(|p| p.contains(&preset.input_device)) { ui_state.selected_in = idx; }
+                                        if let Some(idx) = ui_state.out_ports.iter().position(|p| p.contains(&preset.output_device)) { ui_state.selected_out = idx; }
+
+                                        let mut s = state_mutex.lock().unwrap();
+                                        s.pitch_bend_range = preset.pb_range;
+                                        s.is_mpe = preset.output_type.to_lowercase().contains("mpe");
+                                        for i in 0..16 { s.channel_enabled[i] = preset.channels_out.contains(&(i + 1)); }
+                                        drop(s);
+                                        
+                                        ui_state.active_tuning_mode = preset.active.clone();
+                                        match preset.active.as_str() {
+                                            "equal_division" => { let _ = apply_equal_division(state_mutex.clone(), &ui_state.divisions_input, &ui_state.interval_input); }
+                                            "guitar_grid" => {
+                                                let horiz = if ui_state.grid_unequal_toggle { ui_state.grid_unequal.to_vec() } else { vec![ui_state.grid_horiz.clone()] };
+                                                let _ = apply_grid_tuning(state_mutex.clone(), &ui_state.grid_edo, &ui_state.grid_ref_midi, &ui_state.grid_ref_pitch, &ui_state.grid_open, &horiz, &ui_state.grid_capo, &ui_state.grid_octave);
+                                            }
+                                            "file" => { let _ = crate::tuning::sync_notepad_tuning(state_mutex.clone(), ui_state.scl_textarea.lines(), ui_state.kbm_textarea.lines()); }
+                                            _ => {}
+                                        }
+                                        ui_state.logs.push(format!("Loaded {}", preset_key));
+                                    } else { ui_state.logs.push(format!("{} not found.", preset_key)); }
+                                    
+                                } else if action == 'S' {
+                                    let s = state_mutex.lock().unwrap();
+                                    let mut channels_out = Vec::new();
+                                    for i in 0..16 { if s.channel_enabled[i] { channels_out.push(i + 1); } }
+                                    
+                                    let new_preset = Preset {
+                                        input_device: ui_state.in_ports.get(ui_state.selected_in).cloned().unwrap_or_default(),
+                                        output_device: ui_state.out_ports.get(ui_state.selected_out).cloned().unwrap_or_default(),
+                                        output_type: if s.is_mpe { "MPE".to_string() } else { "Multi-timbral".to_string() },
+                                        pb_range: s.pitch_bend_range,
+                                        channels_out,
+                                        active: ui_state.active_tuning_mode.clone(),
+                                        equal_division: crate::tuning::PresetEqualDivision { divisions: ui_state.divisions_input.clone(), interval_to_divide: ui_state.interval_input.clone() },
+                                        guitar_grid: crate::tuning::PresetGuitarGrid {
+                                            edo: ui_state.grid_edo.clone(), ref_midi: ui_state.grid_ref_midi.clone(), ref_hz: ui_state.grid_ref_pitch.clone(), horiz_step: ui_state.grid_horiz.clone(),
+                                            capo: ui_state.grid_capo.clone(), octave: ui_state.grid_octave.clone(), unequal_frets_on: ui_state.grid_unequal_toggle,
+                                            unequal_frets: ui_state.grid_unequal.to_vec(), open_strings: ui_state.grid_open.to_vec(),
+                                        },
+                                        file: crate::tuning::PresetFile { scl: ui_state.scl_textarea.lines().join("\n"), kbm: ui_state.kbm_textarea.lines().join("\n") }
+                                    };
+                                    
+                                    ui_state.presets.insert(preset_key.clone(), new_preset);
+                                    match crate::tuning::save_presets_to_file(&ui_state.presets) {
+                                        Ok(_) => ui_state.logs.push(format!("Saved {}", preset_key)),
+                                        Err(e) => ui_state.logs.push(format!("Save failed: {}", e)),
+                                    }
+                                }
+                            } else { ui_state.logs.push("Cancelled.".to_string()); }
+                            ui_state.pending_action = None;
+                            continue;
+                        }
+
+                        if !ui_state.is_editing_grid && !ui_state.is_editing_divisions && !ui_state.is_editing_interval && !ui_state.is_editing_dropdown && !ui_state.is_editing_pb && !ui_state.is_typing_in_notepad {
                             
                             // File Buttons (Upper Case Letters)
                             match c {
@@ -383,21 +461,17 @@ pub fn run_tui(
                                     } else {
                                         ui_state.logs.push(format!("Failed to read KBM file: {}", p_kbm));
                                     }
-
+                                    ui_state.active_tuning_mode = "file".to_string();
                                     match crate::tuning::sync_notepad_tuning(state_mutex.clone(), ui_state.scl_textarea.lines(), ui_state.kbm_textarea.lines()) {
                                         Ok(msg) => ui_state.logs.push(msg), Err(e) => ui_state.logs.push(format!("Notepad Parse Error: {}", e))
                                     }
                                     continue;
                                 }
                                 'C' => {
-                                    let lines: Vec<String> = vec![
-                                        "!".into(), "12 EDO".into(), "12".into(), "!".into(), 
-                                        "100.0".into(), "200.0".into(), "300.0".into(), "400.0".into(), 
-                                        "500.0".into(), "600.0".into(), "700.0".into(), "800.0".into(), 
-                                        "900.0".into(), "1000.0".into(), "1100.0".into(), "2/1".into()
-                                    ];
+                                    let lines: Vec<String> = vec!["!".into(), "12 EDO".into(), "12".into(), "!".into(), "100.0".into(), "200.0".into(), "300.0".into(), "400.0".into(), "500.0".into(), "600.0".into(), "700.0".into(), "800.0".into(), "900.0".into(), "1000.0".into(), "1100.0".into(), "2/1".into()];
                                     ui_state.scl_textarea = ratatui_textarea::TextArea::new(lines);
                                     ui_state.active_file_tab = 0;
+                                    ui_state.active_tuning_mode = "file".to_string();
                                     match crate::tuning::sync_notepad_tuning(state_mutex.clone(), ui_state.scl_textarea.lines(), ui_state.kbm_textarea.lines()) {
                                         Ok(msg) => ui_state.logs.push(format!("Cleared SCL. {}", msg)), Err(e) => ui_state.logs.push(format!("Parse Error: {}", e))
                                     }
@@ -436,12 +510,13 @@ pub fn run_tui(
                                 _ => None,
                             };
 
-                            if let Some(f) = new_focus {
-                                ui_state.focus = f;
-                                continue; 
-                            }
+                            if let Some(f) = new_focus { ui_state.focus = f; continue; }
                         }
-                    }                    
+                    } else if key.code == KeyCode::Esc && ui_state.pending_action.is_some() {
+                        ui_state.logs.push("Cancelled.".to_string());
+                        ui_state.pending_action = None;
+                        continue;
+                    }
                     if ui_state.is_editing_pb {
                         match key.code {
                             KeyCode::Char(c) if c.is_ascii_digit() => { 
@@ -472,6 +547,7 @@ pub fn run_tui(
                             KeyCode::Backspace => { buf.pop(); }
                             KeyCode::Enter => {
                                 ui_state.is_editing_divisions = false; ui_state.is_editing_interval = false;
+                                ui_state.active_tuning_mode = "equal_division".to_string();
                                 match apply_equal_division(state_mutex.clone(), &ui_state.divisions_input, &ui_state.interval_input) {
                                     Ok(msg) => ui_state.logs.push(msg), Err(e) => ui_state.logs.push(format!("ED Error: {}", e)),
                                 }
@@ -481,23 +557,16 @@ pub fn run_tui(
                         }
                     } else if ui_state.is_typing_in_notepad {
                         match key.code {
-                            KeyCode::Esc => { 
-                                ui_state.is_typing_in_notepad = false; 
-                                ui_state.logs.push("Exited Notepad.".to_string());
-                            }
-                            KeyCode::Tab => {
-                                ui_state.active_file_tab = if ui_state.active_file_tab == 0 { 1 } else { 0 };
-                            }
+                            KeyCode::Esc => { ui_state.is_typing_in_notepad = false; ui_state.logs.push("Exited Notepad.".to_string()); }
+                            KeyCode::Tab => { ui_state.active_file_tab = if ui_state.active_file_tab == 0 { 1 } else { 0 }; }
                             KeyCode::Enter => {
                                 if ui_state.active_file_tab == 0 { ui_state.scl_textarea.input(key); } else { ui_state.kbm_textarea.input(key); }
                                 match crate::tuning::sync_notepad_tuning(state_mutex.clone(), ui_state.scl_textarea.lines(), ui_state.kbm_textarea.lines()) {
-                                    Ok(msg) => ui_state.logs.push(msg),
-                                    Err(e) => ui_state.logs.push(format!("Notepad Parse Error: {}", e)),
+                                    Ok(msg) => ui_state.logs.push(msg), Err(e) => ui_state.logs.push(format!("Notepad Parse Error: {}", e)),
                                 }
                             }
-                            _ => {
-                                if ui_state.active_file_tab == 0 { ui_state.scl_textarea.input(key); } else { ui_state.kbm_textarea.input(key); }
-                            }
+                            _ => { if ui_state.active_file_tab == 0 { ui_state.scl_textarea.input(key); } else { ui_state.kbm_textarea.input(key); } }
+
                         }
                     } else if ui_state.is_editing_grid {
                         match key.code {
@@ -553,47 +622,10 @@ pub fn run_tui(
                     } else {
                         // Global Navigation map
                         match key.code {
-                            KeyCode::Left => {
-                                ui_state.focus = match ui_state.focus {
-                                    Focus::Input => Focus::Input, Focus::Output => Focus::Input, Focus::Mode => Focus::Output, Focus::PitchBend => Focus::Mode, Focus::Channel(0) => Focus::PitchBend, Focus::Channel(i) => Focus::Channel(i - 1),
-                                    Focus::Divisions => Focus::Channel(15), Focus::Interval => Focus::Divisions,
-                                    Focus::GridEdo => Focus::Interval, Focus::GridRefMidi => Focus::GridEdo, Focus::GridRefPitch => Focus::GridRefMidi, Focus::GridHoriz => Focus::GridRefPitch, Focus::GridCapo => if ui_state.grid_unequal_toggle { Focus::GridRefPitch } else { Focus::GridHoriz }, Focus::GridOctave => Focus::GridCapo, Focus::GridUnequalToggle => Focus::GridOctave, Focus::GridUnequal(0) => Focus::GridUnequalToggle, Focus::GridUnequal(i) => Focus::GridUnequal(i-1), Focus::GridOpen(0) => if ui_state.grid_unequal_toggle { Focus::GridUnequal(8) } else { Focus::GridUnequalToggle }, Focus::GridOpen(i) => Focus::GridOpen(i-1),
-                                    Focus::Notepad => Focus::GridRefPitch, 
-                                    Focus::CommandInput => Focus::GridOpen(7),
-                                };
-                            }
-                            KeyCode::Right => {
-                                ui_state.focus = match ui_state.focus {
-                                    Focus::Input => Focus::Output, Focus::Output => Focus::Mode, Focus::Mode => Focus::PitchBend, Focus::PitchBend => Focus::Channel(0), Focus::Channel(15) => Focus::Divisions, Focus::Channel(i) => Focus::Channel(i + 1),
-                                    Focus::Divisions => Focus::Interval, Focus::Interval => Focus::GridEdo,
-                                    Focus::GridEdo => Focus::GridRefMidi, Focus::GridRefMidi => Focus::GridRefPitch, 
-                                    Focus::GridRefPitch => Focus::Notepad, 
-                                    Focus::GridHoriz => Focus::GridCapo, Focus::GridCapo => Focus::GridOctave, 
-                                    Focus::GridOctave => Focus::Notepad, 
-                                    Focus::GridUnequalToggle => if ui_state.grid_unequal_toggle { Focus::GridUnequal(0) } else { Focus::Notepad }, 
-                                    Focus::GridUnequal(8) => Focus::Notepad, 
-                                    Focus::GridUnequal(i) => Focus::GridUnequal(i+1), Focus::GridOpen(7) => Focus::CommandInput, Focus::GridOpen(i) => Focus::GridOpen(i+1),
-                                    Focus::Notepad => Focus::Notepad,
-                                    Focus::CommandInput => Focus::CommandInput,
-                                };
-                            }
-                            KeyCode::Up => { 
-                                ui_state.focus = match ui_state.focus {
-                                    Focus::CommandInput => Focus::GridOpen(7),
-                                    Focus::GridOpen(_) | Focus::GridEdo | Focus::GridRefMidi | Focus::GridRefPitch | Focus::GridHoriz | Focus::GridCapo | Focus::GridOctave | Focus::GridUnequalToggle | Focus::GridUnequal(_) => Focus::Divisions,
-                                    Focus::Divisions | Focus::Interval => Focus::Channel(0),
-                                    _ => ui_state.focus
-                                };
-                            }
-                            KeyCode::Down => { 
-                                ui_state.focus = match ui_state.focus {
-                                    Focus::Input | Focus::Output | Focus::Mode | Focus::PitchBend | Focus::Channel(_) => Focus::Divisions,
-                                    Focus::Divisions | Focus::Interval => Focus::GridEdo,
-                                    Focus::GridEdo | Focus::GridRefMidi | Focus::GridRefPitch | Focus::GridHoriz | Focus::GridCapo | Focus::GridOctave | Focus::GridUnequalToggle | Focus::GridUnequal(_) => Focus::GridOpen(0),
-                                    Focus::GridOpen(_) => Focus::CommandInput,
-                                    _ => ui_state.focus
-                                };
-                            }
+                            KeyCode::Left => { ui_state.focus = match ui_state.focus { Focus::Input => Focus::Input, Focus::Output => Focus::Input, Focus::Mode => Focus::Output, Focus::PitchBend => Focus::Mode, Focus::Channel(0) => Focus::PitchBend, Focus::Channel(i) => Focus::Channel(i - 1), Focus::Divisions => Focus::Channel(15), Focus::Interval => Focus::Divisions, Focus::GridEdo => Focus::Interval, Focus::GridRefMidi => Focus::GridEdo, Focus::GridRefPitch => Focus::GridRefMidi, Focus::GridHoriz => Focus::GridRefPitch, Focus::GridCapo => if ui_state.grid_unequal_toggle { Focus::GridRefPitch } else { Focus::GridHoriz }, Focus::GridOctave => Focus::GridCapo, Focus::GridUnequalToggle => Focus::GridOctave, Focus::GridUnequal(0) => Focus::GridUnequalToggle, Focus::GridUnequal(i) => Focus::GridUnequal(i-1), Focus::GridOpen(0) => if ui_state.grid_unequal_toggle { Focus::GridUnequal(8) } else { Focus::GridUnequalToggle }, Focus::GridOpen(i) => Focus::GridOpen(i-1), Focus::Notepad => Focus::GridRefPitch, Focus::CommandInput => Focus::GridOpen(7) }; }
+                            KeyCode::Right => { ui_state.focus = match ui_state.focus { Focus::Input => Focus::Output, Focus::Output => Focus::Mode, Focus::Mode => Focus::PitchBend, Focus::PitchBend => Focus::Channel(0), Focus::Channel(15) => Focus::Divisions, Focus::Channel(i) => Focus::Channel(i + 1), Focus::Divisions => Focus::Interval, Focus::Interval => Focus::GridEdo, Focus::GridEdo => Focus::GridRefMidi, Focus::GridRefMidi => Focus::GridRefPitch, Focus::GridRefPitch => Focus::Notepad, Focus::GridHoriz => Focus::GridCapo, Focus::GridCapo => Focus::GridOctave, Focus::GridOctave => Focus::Notepad, Focus::GridUnequalToggle => if ui_state.grid_unequal_toggle { Focus::GridUnequal(0) } else { Focus::Notepad }, Focus::GridUnequal(8) => Focus::Notepad, Focus::GridUnequal(i) => Focus::GridUnequal(i+1), Focus::GridOpen(7) => Focus::CommandInput, Focus::GridOpen(i) => Focus::GridOpen(i+1), Focus::Notepad => Focus::Notepad, Focus::CommandInput => Focus::CommandInput }; }
+                            KeyCode::Up => { ui_state.focus = match ui_state.focus { Focus::CommandInput => Focus::GridOpen(7), Focus::GridOpen(_) | Focus::GridEdo | Focus::GridRefMidi | Focus::GridRefPitch | Focus::GridHoriz | Focus::GridCapo | Focus::GridOctave | Focus::GridUnequalToggle | Focus::GridUnequal(_) => Focus::Divisions, Focus::Divisions | Focus::Interval => Focus::Channel(0), _ => ui_state.focus }; }
+                            KeyCode::Down => { ui_state.focus = match ui_state.focus { Focus::Input | Focus::Output | Focus::Mode | Focus::PitchBend | Focus::Channel(_) => Focus::Divisions, Focus::Divisions | Focus::Interval => Focus::GridEdo, Focus::GridEdo | Focus::GridRefMidi | Focus::GridRefPitch | Focus::GridHoriz | Focus::GridCapo | Focus::GridOctave | Focus::GridUnequalToggle | Focus::GridUnequal(_) => Focus::GridOpen(0), Focus::GridOpen(_) => Focus::CommandInput, _ => ui_state.focus }; }
                             KeyCode::Enter => {
                                 match ui_state.focus {
                                     Focus::Input => { ui_state.is_editing_dropdown = true; ui_state.dropdown_index = ui_state.selected_in; }
@@ -620,24 +652,12 @@ pub fn run_tui(
                                         if s.is_mpe { s.pitch_bend_range = 48; if let Some(conn) = &mut s.out_conn { send_mpe_configuration(conn, 15); } ui_state.logs.push("Switched to MPE. Pitch bend range locked to 48.".to_string()); } 
                                         else { s.pitch_bend_range = 12; ui_state.logs.push("Switched to Multi-timbral. Pitch bend range reset to 12.".to_string()); }
                                     }
-                                    Focus::Channel(i) => {
-                                        let mut s = state_mutex.lock().unwrap();
-                                        if s.is_mpe && i == 0 { ui_state.logs.push("Channel 1 is MPE Master (cannot disable).".to_string()); } 
-                                        else { s.channel_enabled[i] = !s.channel_enabled[i]; }
-                                    }
-                                    Focus::Notepad => {
-                                        ui_state.is_typing_in_notepad = true;
-                                        ui_state.logs.push("Entered Notepad. Press Esc to exit. Press Tab to switch files.".to_string());
-                                    }
+                                    Focus::Channel(i) => { let mut s = state_mutex.lock().unwrap(); if s.is_mpe && i == 0 { ui_state.logs.push("Channel 1 is MPE Master (cannot disable).".to_string()); } else { s.channel_enabled[i] = !s.channel_enabled[i]; } }
+                                    Focus::Notepad => { ui_state.is_typing_in_notepad = true; ui_state.logs.push("Entered Notepad. Press Esc to exit. Press Tab to switch files.".to_string()); }
                                     Focus::CommandInput => {
                                         let cmd = ui_state.input.trim().to_string(); ui_state.input.clear();
                                         if cmd == "q" { return Ok(UiAction::Quit); }
-                                        if cmd == "0" {
-                                            ui_state.logs.push("Command '0' deprecated. Use Shift+L to load SCL files directly.".to_string());
-                                        } else {
-                                            if update_tuning(state_mutex.clone(), &cmd) { ui_state.logs.push(format!("Preset {} loaded.", cmd)); } 
-                                            else { ui_state.logs.push(format!("Unknown command: {}", cmd)); }
-                                        }
+                                        if update_tuning(state_mutex.clone(), &cmd) { ui_state.logs.push(format!("Preset {} loaded.", cmd)); } else { ui_state.logs.push(format!("Unknown command: {}", cmd)); }
                                     }
                                 }
                             }
