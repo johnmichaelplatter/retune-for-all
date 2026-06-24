@@ -3,6 +3,62 @@ use std::fs;
 use std::io::{stdin, stdout, Write};
 use std::sync::{Arc, Mutex};
 use crate::midi::MidiState;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct PresetEqualDivision {
+    pub divisions: String,
+    pub interval_to_divide: String,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct PresetGuitarGrid {
+    pub edo: String,
+    pub ref_midi: String,
+    pub ref_hz: String,
+    pub horiz_step: String,
+    pub capo: String,
+    pub octave: String,
+    pub unequal_frets_on: bool,
+    pub unequal_frets: Vec<String>,
+    pub open_strings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct PresetFile {
+    pub scl: String,
+    pub kbm: String,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct Preset {
+    pub input_device: String,
+    pub output_device: String,
+    pub output_type: String,
+    pub pb_range: u8,
+    pub channels_out: Vec<usize>,
+    pub active: String,
+    pub equal_division: PresetEqualDivision,
+    pub guitar_grid: PresetGuitarGrid,
+    pub file: PresetFile,
+}
+
+pub type PresetsConfig = BTreeMap<String, Preset>;
+
+pub fn load_presets_from_file() -> PresetsConfig {
+    if let Ok(content) = fs::read_to_string("presets.yml") {
+        serde_yaml::from_str(&content).unwrap_or_default()
+    } else {
+        BTreeMap::new()
+    }
+}
+
+pub fn save_presets_to_file(presets: &PresetsConfig) -> Result<(), String> {
+    let content = serde_yaml::to_string(presets).map_err(|e| e.to_string())?;
+    fs::write("presets.yml", content).map_err(|e| e.to_string())?;
+    Ok(())
+}
 
 pub struct Kbm {
     pub map_size: i32, pub first_note: i32, pub last_note: i32,

@@ -47,49 +47,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     kbm_textarea.set_block(Block::default().borders(Borders::TOP));
     kbm_textarea.insert_str("! Template for a keyboard mapping\nSize of map:\n12\n...\n");
 
-    let mut ui_state = UiState {
-        focus: Focus::CommandInput,
-        is_editing_dropdown: false,
-        is_editing_pb: false,
-        clear_pb: false,        
-        pb_input: String::new(),
-        
-        is_editing_divisions: false,
-        clear_divisions: false,
-        divisions_input: "12".to_string(),
-        
-        is_editing_interval: false,
-        clear_interval: false,
-        interval_input: "2/1".to_string(),
-
-        // --- GRID INITIALIZERS ---
-        grid_edo: "41".to_string(),
-        grid_ref_midi: "48".to_string(),
-        grid_ref_pitch: "260.89".to_string(),
-        grid_horiz: "2".to_string(),
-        grid_capo: "0".to_string(),
-        grid_octave: "0".to_string(),
-        grid_open: ["13".to_string(), "0".to_string(), "-17".to_string(), "-28".to_string(), "-41".to_string(), "-52".to_string(), "-65".to_string(), "-82".to_string()],
-        grid_unequal: ["2".to_string(), "2".to_string(), "2".to_string(), "2".to_string(), "2".to_string(), "2".to_string(), "2".to_string(), "2".to_string(), "2".to_string()],
-        grid_unequal_toggle: false,
-        is_editing_grid: false,
-        clear_grid: false,
-
-        // --- NEW NOTEPAD FILE INITIALIZERS ---
-        active_file_tab: 0,
-        is_typing_in_notepad: false,
-        scl_textarea,
-        kbm_textarea,
-        // -------------------------------------
-
-        dropdown_index: 0,
-        in_ports: vec![],
-        out_ports: vec![],
-        selected_in: 0,
-        selected_out: 0,
-        input: String::new(),
-        logs: vec!["Welcome to Poly-Router!".into(), "Navigate to Settings with Arrow Keys to Configure.".into()],
-    };
+let mut ui_state = UiState::default();
 
     let mut active_in_conn = None;
 
