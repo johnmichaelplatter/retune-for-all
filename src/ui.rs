@@ -215,7 +215,7 @@ pub fn run_tui(
             let mut dots_row = vec![Span::raw("MIDI In: ")];
             let in_dot_color = if midi_state.input_flash > 0 { Color::Cyan } else { Color::DarkGray };
             dots_row.push(Span::styled("•", Style::default().fg(in_dot_color))); 
-            dots_row.extend(render_labeled("   Channels Out: ",4));
+            dots_row.extend(render_labeled("   Channels Out: ",3));
             for i in 0..16 {
                 let mut dot_style = Style::default();
                 if midi_state.output_flash[i] > 0 { dot_style = dot_style.fg(Color::White).add_modifier(Modifier::BOLD); } 
@@ -256,7 +256,7 @@ pub fn run_tui(
             // Left Side: 8 Open Strings
             let mut string_lines = vec![];
             for i in 0..8 {
-                let string_idx = 7 - i; 
+                let string_idx = i; 
                 let string_num = string_idx + 1; 
                 let mut line = Vec::new();
 
@@ -271,7 +271,7 @@ pub fn run_tui(
             // Right Side: Grid Parameters
             let mut g_row1 = vec![];
             g_row1.extend(render_labeled("EDO: ",0)); g_row1.push(fmt_box(ui_state, Focus::GridEdo, &ui_state.grid_edo));
-            g_row1.extend(render_labeled("  Ref MIDI: ", 0)); g_row1.push(fmt_box(ui_state, Focus::GridRefMidi, &ui_state.grid_ref_midi));
+            g_row1.extend(render_labeled("  Ref MIDI: ", 2)); g_row1.push(fmt_box(ui_state, Focus::GridRefMidi, &ui_state.grid_ref_midi));
             g_row1.extend(render_labeled("  Ref Hz: ", 7)); g_row1.push(fmt_box(ui_state, Focus::GridRefPitch, &ui_state.grid_ref_pitch));
             
             let mut g_row2 = vec![];
@@ -292,7 +292,7 @@ pub fn run_tui(
             
             let mut g_row4 = vec![Span::raw("Steps: ")];
             if ui_state.grid_unequal_toggle {
-                for i in 0..9 {
+                for i in 0..8 {
                     g_row4.push(fmt_box(ui_state, Focus::GridUnequal(i), &ui_state.grid_unequal[i]));
                     g_row4.push(Span::raw(" "));
                 }
@@ -301,7 +301,7 @@ pub fn run_tui(
             f.render_widget(Paragraph::new(vec![Line::from(g_row1), Line::from(g_row2), Line::raw(""), Line::from(g_row3), Line::from(g_row4)]), grid_splits[1]);
 
             // --- FILE PANEL ---
-            let file_border_color = if ui_state.focus == Focus::Notepad && !ui_state.is_typing_in_notepad { Color::Yellow } else { Color::Green };
+            let file_border_color = if ui_state.focus == Focus::Notepad { if ui_state.is_typing_in_notepad { Color::White } else { Color::Yellow }} else { Color::Green };
             let file_block = Block::default().title(" File ").borders(Borders::ALL).border_style(Style::default().fg(file_border_color));
             let file_area = file_block.inner(middle_chunks[1]);
             f.render_widget(file_block, middle_chunks[1]);
@@ -312,12 +312,12 @@ pub fn run_tui(
                 .split(file_area);
 
             // Tabs
-            let scl_tab = Line::from(vec![Span::raw(" S"), Span::styled("C", Style::default().add_modifier(Modifier::UNDERLINED)), Span::raw("L ")]);
-            let kbm_tab = Line::from(vec![Span::raw(" K"), Span::styled("B", Style::default().add_modifier(Modifier::UNDERLINED)), Span::raw("M ")]);
+            let scl_tab = Line::from(vec![Span::raw(" SCL ")]);
+            let kbm_tab = Line::from(vec![Span::raw(" KBM ")]);
 
             let tabs = Tabs::new(vec![scl_tab, kbm_tab])
                 .select(ui_state.active_file_tab)
-                .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+                .highlight_style(Style::default().add_modifier(Modifier::UNDERLINED)) 
                 .divider("|");
             f.render_widget(tabs, file_splits[0]);
 
@@ -326,7 +326,7 @@ pub fn run_tui(
             f.render_widget(Paragraph::new(btn_text), file_splits[1]);
 
             // Notepad (TextArea) Dynamic Highlighting
-            let active_color = if ui_state.focus == Focus::Notepad { Color::Yellow } else { Color::Green };
+            let active_color = file_border_color;
             ui_state.scl_textarea.set_block(Block::default().borders(Borders::TOP).border_style(Style::default().fg(if ui_state.active_file_tab == 0 { active_color } else { Color::DarkGray })));
             ui_state.kbm_textarea.set_block(Block::default().borders(Borders::TOP).border_style(Style::default().fg(if ui_state.active_file_tab == 1 { active_color } else { Color::DarkGray })));
 
@@ -345,7 +345,7 @@ pub fn run_tui(
 
             // --- COMMAND INPUT ---
             let input_style = if ui_state.focus == Focus::CommandInput { Style::default().fg(Color::Yellow) } else { Style::default() };
-            f.render_widget(Paragraph::new(format!("> {}", ui_state.input)).style(input_style).block(Block::default().title(" Command Input ").borders(Borders::ALL).border_style(Style::default().fg(Color::Green))), main_chunks[4]);
+            f.render_widget(Paragraph::new(format!("> {}", ui_state.input)).style(input_style).block(Block::default().title(" Command Input ").borders(Borders::ALL).border_style(input_style)), main_chunks[4]);
         })?;
 
         if event::poll(Duration::from_millis(30))? {
