@@ -262,19 +262,6 @@ pub fn sync_notepad_tuning(state_mutex: Arc<Mutex<MidiState>>, scl_lines: &[Stri
     Ok(format!("Notepad tuned successfully ({} notes).", multipliers.len() - 1))
 }
 
-// Keep original file loaders for CommandInput fallback
-pub fn parse_scl(path: &str) -> Result<Vec<f32>, Box<dyn Error>> {
-    let contents = fs::read_to_string(path)?;
-    let lines: Vec<String> = contents.lines().map(|s| s.to_string()).collect();
-    parse_scl_content(&lines).map_err(|e| e.into())
-}
-
-pub fn parse_kbm(path: &str) -> Result<Kbm, Box<dyn Error>> {
-    let contents = fs::read_to_string(path)?;
-    let lines: Vec<String> = contents.lines().map(|s| s.to_string()).collect();
-    parse_kbm_content(&lines).map_err(|e| e.into())
-}
-
 pub fn update_tuning(state_mutex: Arc<Mutex<MidiState>>, choice: &str) -> bool {
     let choice_char = choice.chars().next().unwrap_or(' ');
     let mut state = state_mutex.lock().unwrap();

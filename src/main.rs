@@ -11,7 +11,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use ratatui::widgets::{Block, Borders}; // Added for default text area block formatting
 
 use midi::{MidiState, process_midi, send_mpe_configuration};
-use ui::{UiState, Focus, UiAction, run_tui};
+use ui::{UiState, UiAction, run_tui};
 use tuning::update_tuning;
 
 fn main() -> Result<(), Box<dyn Error>> {

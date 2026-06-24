@@ -17,8 +17,8 @@ use ratatui_textarea::TextArea;
 
 use crate::midi::{MidiState, send_mpe_configuration};
 use crate::tuning::{
-    prompt_input, apply_grid_tuning, update_tuning, parse_scl, parse_kbm, 
-    apply_custom_tuning, apply_equal_division, Kbm, Preset, PresetsConfig
+    prompt_input, apply_grid_tuning, update_tuning, 
+    apply_equal_division, Preset, PresetsConfig
 };
 
 #[derive(PartialEq, Clone, Copy)]
@@ -132,9 +132,9 @@ impl Default for UiState {
     }
 }
 
-pub enum UiAction { None, Quit, ChangeInput(usize), ChangeOutput(usize) }
+pub enum UiAction { Quit, ChangeInput(usize), ChangeOutput(usize) }
 
-pub fn render_labeled(text: &str, hotkey_idx: usize) -> Vec<Span> {
+pub fn render_labeled(text: &str, hotkey_idx: usize) -> Vec<Span<'_>> {
     let (first, rest) = text.split_at(hotkey_idx);
     let (hotkey, last) = rest.split_at(1);
     vec![
@@ -157,13 +157,10 @@ fn move_focus(current: Focus, direction: &str, ui_state: &UiState) -> Focus {
             Focus::GridUnequal(8) | Focus::GridOctave | Focus::GridRefPitch | Focus::GridUnequalToggle | Focus::Interval => Focus::Notepad,
             
             Focus::Divisions => Focus::Interval,
-            Focus::Interval => Focus::GridEdo,
             Focus::GridEdo => Focus::GridRefMidi,
             Focus::GridRefMidi => Focus::GridRefPitch,
             Focus::GridHoriz => Focus::GridCapo,
             Focus::GridCapo => Focus::GridOctave,
-            Focus::GridOctave => Focus::GridUnequalToggle,
-            Focus::GridUnequalToggle => Focus::GridUnequal(0),
             Focus::GridUnequal(i) if i < 8 => Focus::GridUnequal(i + 1),
             Focus::GridOpen(0) => Focus::GridEdo,
             Focus::GridOpen(1) => if ui_state.grid_unequal_toggle {Focus::GridCapo} else {Focus::GridHoriz},
@@ -187,7 +184,7 @@ fn move_focus(current: Focus, direction: &str, ui_state: &UiState) -> Focus {
             Focus::GridCapo => if ui_state.grid_unequal_toggle {Focus::GridOpen(1)} else {Focus::GridHoriz},
             Focus::GridOctave => Focus::GridCapo,
             Focus::GridUnequal(0) => Focus::GridUnequalToggle,
-            Focus::GridUnequal(i) if i > 0 => Focus::GridUnequal(i - 1),
+            Focus::GridUnequal(_) if i > 0 => Focus::GridUnequal(i - 1),
             Focus::GridUnequalToggle => Focus::GridOpen(3),
             _ => current,
         },
@@ -255,7 +252,7 @@ pub fn run_tui(
                     Constraint::Length(5),
                     Constraint::Length(3)
                 ].as_ref())
-                .split(f.size());
+                .split(f.area());
 
             let middle_chunks = Layout::default()
                 .direction(Direction::Horizontal)
@@ -273,7 +270,7 @@ pub fn run_tui(
                 ].as_ref())
                 .split(middle_chunks[0]);
 
-            let mut midi_state = state_mutex.lock().unwrap();
+            let midi_state = state_mutex.lock().unwrap();
 
             // --- SETTINGS PANEL ---
             let mut top_row = vec![];
