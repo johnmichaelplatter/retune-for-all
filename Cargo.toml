@@ -10,3 +10,9 @@ crossterm = "0.29"
 ratatui-textarea = "0.9.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
+
+[profile.release]
+opt-level = 3        
+lto = true           
+codegen-units = 1    
+strip = true         
