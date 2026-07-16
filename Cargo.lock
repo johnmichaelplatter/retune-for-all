@@ -988,6 +988,7 @@ dependencies = [
  "ratatui-textarea",
  "serde",
  "serde_yaml",
+ "tui-menu",
 ]
 
 [[package]]
@@ -1539,6 +1540,16 @@ name = "time-core"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
+
+[[package]]
+name = "tui-menu"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6d7f10ff29b3543148afcaba50642850082840adc4e8169c7f2c9d2bcdba3b6"
+dependencies = [
+ "ratatui-core",
+ "ratatui-widgets",
+]
 
 [[package]]
 name = "typenum"

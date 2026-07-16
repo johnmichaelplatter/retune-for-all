@@ -13,6 +13,8 @@ pub struct PresetEqualDivision {
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct PresetGuitarGrid {
+    #[serde(default)] // Ensures older preset files still load (defaults to false)
+    pub is_ji: bool,
     pub edo: String,
     pub ref_midi: String,
     pub ref_hz: String,
@@ -73,23 +75,32 @@ pub fn prompt_input(prompt: &str) -> String {
     s.trim().to_string()
 }
 
+pub fn parse_interval(token: &str) -> Result<f32, String> {
+    if token.contains('.') {
+        let cents: f32 = token.parse().map_err(|_| "Invalid cents".to_string())?;
+        Ok(2.0_f32.powf(cents / 1200.0))
+    } else if token.contains('/') {
+        let mut parts = token.split('/');
+        let num: f32 = parts.next().unwrap_or("").parse().map_err(|_| "Invalid numerator".to_string())?;
+        let den: f32 = parts.next().unwrap_or("").parse().map_err(|_| "Invalid denominator".to_string())?;
+        if den == 0.0 { return Err("Denominator cannot be 0".to_string()); }
+        Ok(num / den)
+    } else if token.contains('\\') {
+        let mut parts = token.split('\\');
+        let steps: f32 = parts.next().unwrap_or("").parse().map_err(|_| "Invalid steps".to_string())?;
+        let edo: f32 = parts.next().unwrap_or("").parse().map_err(|_| "Invalid edo".to_string())?;
+        if edo < 2.0 { return Err("EDO expression must have base greater than 1 edo".to_string()); }
+        Ok(2.0_f32.powf(steps/edo))
+    } else {
+        token.parse::<f32>().map_err(|_| "Invalid interval ratio".to_string())
+    }
+}
+
 pub fn apply_equal_division(state_mutex: Arc<Mutex<MidiState>>, divisions_str: &str, interval_str: &str) -> Result<String, String> {
     let divisions: f32 = divisions_str.parse().map_err(|_| "Invalid divisions integer")?;
     if divisions <= 0.0 { return Err("Divisions must be > 0".into()); }
 
-    let ratio = if interval_str.contains('.') {
-        let cents: f32 = interval_str.parse().map_err(|_| "Invalid cents")?;
-        2.0_f32.powf(cents / 1200.0)
-    } else if interval_str.contains('/') {
-        let mut parts = interval_str.split('/');
-        let num: f32 = parts.next().unwrap_or("").parse().map_err(|_| "Invalid numerator")?;
-        let den: f32 = parts.next().unwrap_or("").parse().map_err(|_| "Invalid denominator")?;
-        if den == 0.0 { return Err("Denominator cannot be 0".into()); }
-        num / den
-    } else {
-        interval_str.parse::<f32>().map_err(|_| "Invalid interval ratio")?
-    };
-
+    let ratio = parse_interval(interval_str)?;
     if ratio <= 0.0 { return Err("Interval ratio must be > 0".into()); }
 
     let mut state = state_mutex.lock().unwrap();
@@ -105,6 +116,8 @@ pub fn apply_equal_division(state_mutex: Arc<Mutex<MidiState>>, divisions_str: &
 
 pub fn apply_grid_tuning(
     state_mutex: Arc<Mutex<MidiState>>,
+    is_ji: bool,
+    is_unequal: bool, // NEW PARAMETER
     edo_str: &str,
     _ref_midi_str: &str, 
     ref_pitch_str: &str,
@@ -113,11 +126,64 @@ pub fn apply_grid_tuning(
     capo_str: &str,
     octave_str: &str
 ) -> Result<String, String> {
-    let edo: f32 = edo_str.parse().map_err(|_| "Invalid EDO")?;
     let ref_pitch: f32 = ref_pitch_str.parse().map_err(|_| "Invalid Ref Pitch")?;
     let capo: i32 = capo_str.parse().map_err(|_| "Invalid Capo")?;
     let octave: i32 = octave_str.parse().map_err(|_| "Invalid Octave")?;
 
+    let mut new_tuning = [0.0; 128]; 
+
+    if is_ji {
+        // --- JI MODE MULTIPLICATIVE LOGIC ---
+        let mut parsed_open = [0.0; 8];
+        for i in 0..8 { 
+            parsed_open[i] = parse_interval(&open_strings[i]).map_err(|e| format!("Open String {}: {}", i+1, e))?; 
+        }
+
+        let mut parsed_horiz = Vec::new();
+        for h in horiz_steps { 
+            parsed_horiz.push(parse_interval(h).map_err(|e| format!("Horiz Step Error: {}", e))?); 
+        }
+        if parsed_horiz.is_empty() { return Err("No horizontal steps provided".into()); }
+
+        let calc_horiz_ratio = |fret: i32| -> f32 {
+            let mut ratio = 1.0;
+            if fret > 0 { 
+                for i in 0..fret { 
+                    if is_unequal {
+                        ratio = parsed_horiz[i as usize % parsed_horiz.len()];
+                    } else {
+                        ratio *= parsed_horiz[i as usize % parsed_horiz.len()];
+                    }
+                } 
+            } else if fret < 0 { 
+                for i in fret..0 { 
+                    if is_unequal {
+                        ratio = parsed_horiz[i.rem_euclid(parsed_horiz.len() as i32) as usize];
+                    } else {
+                        ratio /= parsed_horiz[i.rem_euclid(parsed_horiz.len() as i32) as usize];
+                    }
+                } 
+            }
+            ratio
+        };
+
+        for row in 0..8 {
+            for col in 0..9 {
+                let midi_note = row * 16 + col;
+                if midi_note < 128 {
+                    let h_ratio = calc_horiz_ratio(col + capo);
+                    new_tuning[midi_note as usize] = ref_pitch * parsed_open[row as usize] * h_ratio * 2.0_f32.powi(octave);
+                }
+            }
+        }
+        
+        let mut state = state_mutex.lock().unwrap();
+        state.tuning = new_tuning;
+        return Ok("Mapped Guitar Grid to JI Ratios!".to_string());
+    }
+
+    // --- EDO MODE LOGIC ---
+    let edo: f32 = edo_str.parse().map_err(|_| "Invalid EDO")?;
     let mut parsed_open = [0; 8];
     for i in 0..8 { 
         parsed_open[i] = open_strings[i].parse().map_err(|_| format!("Invalid Open String {}", i+1))?; 
@@ -136,7 +202,6 @@ pub fn apply_grid_tuning(
         offset
     };
 
-    let mut new_tuning = [0.0; 128]; 
     for row in 0..8 {
         for col in 0..9 {
             let midi_note = row * 16 + col;
@@ -185,8 +250,6 @@ pub fn apply_custom_tuning(state_mutex: Arc<Mutex<MidiState>>, multipliers: &[f3
     Ok(())
 }
 
-// --- NEW NOTEPAD CONTENT PARSERS ---
-
 pub fn parse_scl_content(lines: &[String]) -> Result<Vec<f32>, String> {
     let mut it = lines.iter().filter(|l| !l.trim().starts_with('!'));
     let _ = it.next().ok_or("Missing SCL description")?;
@@ -203,18 +266,10 @@ pub fn parse_scl_content(lines: &[String]) -> Result<Vec<f32>, String> {
         let trimmed = line.trim();
         if trimmed.is_empty() { continue; } 
         let token = trimmed.split_whitespace().next().unwrap_or("");
-        let multiplier = if token.contains('.') { 
-            2.0_f32.powf(token.parse::<f32>().map_err(|_| "Invalid cents")? / 1200.0) 
-        } else if token.contains('/') { 
-            let mut p = token.split('/'); 
-            let num = p.next().unwrap_or("").parse::<f32>().map_err(|_| "Invalid numerator")?;
-            let den = p.next().unwrap_or("").parse::<f32>().map_err(|_| "Invalid denominator")?;
-            if den == 0.0 { return Err("Divide by zero".into()); }
-            num / den
-        } else { 
-            token.parse::<f32>().map_err(|_| "Invalid ratio")? 
-        };
+        
+        let multiplier = parse_interval(token)?;
         if multiplier <= 0.0 { return Err("Multiplier must be positive".into()); }
+        
         multipliers.push(multiplier);
     }
     Ok(multipliers)
