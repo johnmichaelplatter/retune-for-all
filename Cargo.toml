@@ -9,7 +9,7 @@ ratatui = { version = "0.30", features = ["crossterm_0_29"] }
 crossterm = "0.29"
 ratatui-textarea = "0.9.2"
 serde = { version = "1.0", features = ["derive"] }
-serde_yaml = "0.9"
+serde-saphyr = "0.0.29"
 tui-menu = "0.3.1"
 
 [profile.release]
@@ -17,4 +17,4 @@ opt-level = 3
 lto = true           
 codegen-units = 1    
 strip = true
-        
+panic = "abort"

@@ -49,14 +49,14 @@ pub type PresetsConfig = BTreeMap<String, Preset>;
 
 pub fn load_presets_from_file() -> PresetsConfig {
     if let Ok(content) = fs::read_to_string("presets.yml") {
-        serde_yaml::from_str(&content).unwrap_or_default()
+        serde_saphyr::from_str(&content).unwrap_or_default()
     } else {
         BTreeMap::new()
     }
 }
 
 pub fn save_presets_to_file(presets: &PresetsConfig) -> Result<(), String> {
-    let content = serde_yaml::to_string(presets).map_err(|e| e.to_string())?;
+    let content = serde_saphyr::to_string(presets).map_err(|e| e.to_string())?;
     fs::write("presets.yml", content).map_err(|e| e.to_string())?;
     Ok(())
 }
