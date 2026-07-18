@@ -1,5 +1,5 @@
 # retune-for-all
-![alt text](TUI_Walkthrough.gif)
+![alt text](images/TUI_Walkthrough.gif)
 Retune for All is a performance-oriented microtonal MIDI retuner that can send multi-timbral or MPE MIDI, supports Scala `.scl`/`.kbm` file import, and reads & writes YAML presets.
 
 Built as a lightweight, lightning-fast **Terminal User Interface (TUI)**, `retune-for-all` is optimized for live performance and deep tuning exploration. Quickly set up the TUI using hotkeys, import and tweak scl/kbm files, and save/load presets.
