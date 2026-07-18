@@ -1,7 +1,11 @@
 [package]
-name = "poly-router"
+name = "retune-for-all"
 version = "0.1.0"
 edition = "2021"
+description = "A performance-oriented microtonal MIDI retuner that can send multi-timbral or MPE midi, supports scala scl/kbm file import, and reads & writes YAML presets."
+license = "MIT"
+categories = ["MIDI"]
+keywords = ["microtonal", "MIDI", "scala", "scl", "kbm", "MPE"]
 
 [dependencies]
 midir = "0.9"
