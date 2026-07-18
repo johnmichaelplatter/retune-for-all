@@ -6,7 +6,7 @@ description = "A performance-oriented microtonal MIDI retuner that can send mult
 homepage = "https://github.com/johnmichaelplatter/retune-for-all"
 repository = "https://github.com/johnmichaelplatter/retune-for-all"
 license = "MIT"
-keywords = ["microtonal", "MIDI", "scala", "scl", "kbm", "MPE"]
+keywords = ["microtonal", "MIDI", "scl", "kbm", "MPE"]
 
 [dependencies]
 midir = "0.9"
