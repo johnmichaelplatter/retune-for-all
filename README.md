@@ -1,5 +1,5 @@
 # retune-for-all
-
+![alt text](TUI_Walkthrough.gif)
 Retune for All is a performance-oriented microtonal MIDI retuner that can send multi-timbral or MPE MIDI, supports Scala `.scl`/`.kbm` file import, and reads & writes YAML presets.
 
 Built as a lightweight, lightning-fast **Terminal User Interface (TUI)**, `retune-for-all` is optimized for live performance and deep tuning exploration. Quickly set up the TUI using hotkeys, import and tweak scl/kbm files, and save/load presets.
@@ -32,7 +32,7 @@ cargo install retune-for-all
 
 The interface is built to behave like a fast, interactive spreadsheet. Every parameter is mapped to a hotkey (indicated by underlined letters or highlighted brackets). Pressing the hotkey shifts focus to that parameter, and `Enter` is used to enter/exit data entry intuitively. Arrow keys also navigate as expected.
 
-![alt text](image.png)
+![alt text](images/image.png)
 ### **I**nput / **O**utput Setup
 
 * Press `i` to focus **Input Device** or `o` to focus **Output Device**.
@@ -55,13 +55,13 @@ The interface is built to behave like a fast, interactive spreadsheet. Every par
 `retune-for-all` features three distinct tuning engines:
 
 ### 1. Equal Division
-![alt text](image-1.png)
+![alt text](images/image-1.png)
 
 * **Hotkeys:** `d` (Divisions) / `n` (Interval to Divide)
 * Divides a target macro-interval (such as an octave `2/1`, a tritave `3/1`, or a 12edo major third `4\12`) into a set number of equal steps. Press `Enter` to edit, type your value, and hit `Enter` to apply.
 
 ### 2. Guitar Grid
-![alt text](image-3.png)
+![alt text](images/image-3.png)
 Perfect for isometric MIDI layouts, launchpads, or fretboard controllers, this mode lays out pitch structures across strings (rows) and frets (columns). 
 
 _Note: This mapping currently assumes MIDI note 0 is at the top left of the grid controller, 16 is one row down, and notes increment by one each button to the right._
@@ -77,7 +77,7 @@ _Note: This mapping currently assumes MIDI note 0 is at the top left of the grid
         * In **JI mode**, entries specify ratios above the open string for each button to the right of the open strings
 
 ### 3. File Import & Live Notepad
-![alt text](image-6.png)
+![alt text](images/image-6.png)
 * **Hotkeys:** `f`,`Enter` to enter typing mode inside the scratchpad, and `Tab` to switch between the SCL and KBM notepads. Press `Shift + L` to quickly load external files (you may drag and drop files into the terminal screen or paste the full path to the file)
 * **Format Standards:** Fully supports the official format architectures of the [Scala Scale (.scl) Specification](https://www.huygens-fokker.org/scala/scl_format.html) and [Keyboard Mapping (.kbm) Specification](https://www.huygens-fokker.org/scala/help.htm#mappings).
     * Note that one additional convenience interval style can be used beyond scl standards: `n` steps of `m` EDO can be written `n\m`
