@@ -131,7 +131,7 @@ impl Default for UiState {
             selected_in: 0,
             selected_out: 0,
             input: String::new(),
-            logs: vec!["Welcome to Poly-Router!".into(), "Navigate to Settings with Arrow Keys to Configure.".into()],            
+            logs: vec!["Welcome to Retune for All!".into(), "Navigate to Settings with Arrow Keys to Configure.".into()],            
             active_file_tab: 0,
             is_typing_in_notepad: false,
             scl_textarea: scl,
